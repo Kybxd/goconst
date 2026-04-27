@@ -88,8 +88,8 @@ const file_testdata_external_external_proto_rawDesc = "" +
 	" testdata/external/external.proto\x12\x11testdata.external\"0\n" +
 	"\bExternal\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x0e\n" +
-	"\x02ts\x18\x02 \x01(\x03R\x02tsB\xd3\x01\n" +
-	"\x15com.testdata.externalB\rExternalProtoP\x01ZFgithub.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/external\xa2\x02\x03TEX\xaa\x02\x11Testdata.External\xca\x02\x11Testdata\\External\xe2\x02\x1dTestdata\\External\\GPBMetadata\xea\x02\x12Testdata::Externalb\x06proto3"
+	"\x02ts\x18\x02 \x01(\x03R\x02tsB\xc7\x01\n" +
+	"\x15com.testdata.externalB\rExternalProtoP\x01Z:github.com/Kybxd/goconst/examples/gen/go/testdata/external\xa2\x02\x03TEX\xaa\x02\x11Testdata.External\xca\x02\x11Testdata\\External\xe2\x02\x1dTestdata\\External\\GPBMetadata\xea\x02\x12Testdata::Externalb\x06proto3"
 
 var (
 	file_testdata_external_external_proto_rawDescOnce sync.Once

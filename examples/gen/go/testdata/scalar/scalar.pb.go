@@ -306,8 +306,8 @@ const file_testdata_scalar_scalar_proto_rawDesc = "" +
 	"\tCOLOR_RED\x10\x01\x12\x0f\n" +
 	"\vCOLOR_GREEN\x10\x02\x12\x0e\n" +
 	"\n" +
-	"COLOR_BLUE\x10\x03B\xc5\x01\n" +
-	"\x13com.testdata.scalarB\vScalarProtoP\x01ZDgithub.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/scalar\xa2\x02\x03TSX\xaa\x02\x0fTestdata.Scalar\xca\x02\x0fTestdata\\Scalar\xe2\x02\x1bTestdata\\Scalar\\GPBMetadata\xea\x02\x10Testdata::Scalarb\x06proto3"
+	"COLOR_BLUE\x10\x03B\xb9\x01\n" +
+	"\x13com.testdata.scalarB\vScalarProtoP\x01Z8github.com/Kybxd/goconst/examples/gen/go/testdata/scalar\xa2\x02\x03TSX\xaa\x02\x0fTestdata.Scalar\xca\x02\x0fTestdata\\Scalar\xe2\x02\x1bTestdata\\Scalar\\GPBMetadata\xea\x02\x10Testdata::Scalarb\x06proto3"
 
 var (
 	file_testdata_scalar_scalar_proto_rawDescOnce sync.Once

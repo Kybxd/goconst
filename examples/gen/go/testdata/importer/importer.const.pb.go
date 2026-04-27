@@ -7,11 +7,11 @@
 package importer
 
 import (
-	external "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/external"
-	nested "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/nested"
+	goconst "github.com/Kybxd/goconst"
+	external "github.com/Kybxd/goconst/examples/gen/go/testdata/external"
+	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
 	proto "google.golang.org/protobuf/proto"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	iter "iter"
 )
 
 // Envelope_Const is a read-only interface of Envelope.
@@ -21,11 +21,11 @@ type Envelope_Const interface {
 	GetId() string
 	GetAddr() nested.Address_Const
 	GetExt() *external.External
-	GetExtras() iter.Seq2[int, *external.External]
-	GetExtMap() iter.Seq2[string, *external.External]
+	GetExtras() goconst.Slice[*external.External]
+	GetExtMap() goconst.Map[string, *external.External]
 	GetCreatedAt() *timestamppb.Timestamp
-	GetHistory() iter.Seq2[int, *timestamppb.Timestamp]
-	GetTsMap() iter.Seq2[string, *timestamppb.Timestamp]
+	GetHistory() goconst.Slice[*timestamppb.Timestamp]
+	GetTsMap() goconst.Map[string, *timestamppb.Timestamp]
 }
 
 type _Envelope_Const struct {
@@ -43,42 +43,18 @@ func (x *_Envelope_Const) GetAddr() nested.Address_Const {
 	return x.Envelope.GetAddr().AsConst()
 }
 
-func (x *_Envelope_Const) GetExtras() iter.Seq2[int, *external.External] {
-	return func(yield func(int, *external.External) bool) {
-		for i, v := range x.Envelope.GetExtras() {
-			if !yield(i, v) {
-				return
-			}
-		}
-	}
+func (x *_Envelope_Const) GetExtras() goconst.Slice[*external.External] {
+	return goconst.NewSlice(x.Envelope.GetExtras())
 }
 
-func (x *_Envelope_Const) GetExtMap() iter.Seq2[string, *external.External] {
-	return func(yield func(string, *external.External) bool) {
-		for k, v := range x.Envelope.GetExtMap() {
-			if !yield(k, v) {
-				return
-			}
-		}
-	}
+func (x *_Envelope_Const) GetExtMap() goconst.Map[string, *external.External] {
+	return goconst.NewMap(x.Envelope.GetExtMap())
 }
 
-func (x *_Envelope_Const) GetHistory() iter.Seq2[int, *timestamppb.Timestamp] {
-	return func(yield func(int, *timestamppb.Timestamp) bool) {
-		for i, v := range x.Envelope.GetHistory() {
-			if !yield(i, v) {
-				return
-			}
-		}
-	}
+func (x *_Envelope_Const) GetHistory() goconst.Slice[*timestamppb.Timestamp] {
+	return goconst.NewSlice(x.Envelope.GetHistory())
 }
 
-func (x *_Envelope_Const) GetTsMap() iter.Seq2[string, *timestamppb.Timestamp] {
-	return func(yield func(string, *timestamppb.Timestamp) bool) {
-		for k, v := range x.Envelope.GetTsMap() {
-			if !yield(k, v) {
-				return
-			}
-		}
-	}
+func (x *_Envelope_Const) GetTsMap() goconst.Map[string, *timestamppb.Timestamp] {
+	return goconst.NewMap(x.Envelope.GetTsMap())
 }

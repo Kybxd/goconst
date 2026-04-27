@@ -1,8 +1,9 @@
-# protoc-gen-go-const
+# goconst
 
-A [`protoc`](https://protobuf.dev) / [`buf`](https://buf.build) plugin that
-generates a **read-only interface view** for every `message` in your
-`.proto` files, alongside the standard `protoc-gen-go` output.
+A [`protoc`](https://protobuf.dev) / [`buf`](https://buf.build) plugin
+(`protoc-gen-go-const`) that generates a **read-only interface view** for
+every `message` in your `.proto` files, alongside the standard
+`protoc-gen-go` output.
 
 For each message `Foo`, it emits:
 
@@ -10,6 +11,12 @@ For each message `Foo`, it emits:
   function that takes `Foo_Const` physically cannot mutate the message.
 * `func (x *Foo) AsConst() Foo_Const` — a zero-cost adapter (an embedded
   wrapper struct) to obtain that view from a concrete `*Foo`.
+
+Repeated and map fields are returned through
+[`goconst.Slice`](goconst.go) / [`goconst.Map`](goconst.go) — small
+read-only collection interfaces that preserve `len`, index / key lookup
+and ranged iteration without leaking mutation (no `append`, no slot
+assignment).
 
 The goal is to let API boundaries (service layers, caches, event handlers,
 goroutine handoffs, …) express *"I only read this message"* at the type
@@ -48,14 +55,16 @@ message Envelope {
 the plugin generates (roughly):
 
 ```go
+import "github.com/Kybxd/goconst"
+
 // Envelope_Const is a read-only interface of Envelope.
 type Envelope_Const interface {
 	proto.Message
 
 	GetId() string
 	GetAddr() Address_Const
-	GetHistory() iter.Seq2[int, Address_Const]
-	GetByTag() iter.Seq2[string, Address_Const]
+	GetHistory() goconst.Slice[Address_Const]
+	GetByTag() goconst.Map[string, Address_Const]
 }
 
 type _Envelope_Const struct{ *Envelope } // embeds concrete type
@@ -63,7 +72,57 @@ type _Envelope_Const struct{ *Envelope } // embeds concrete type
 var _ Envelope_Const = (*_Envelope_Const)(nil)
 
 func (x *Envelope) AsConst() Envelope_Const { return &_Envelope_Const{x} }
+
+// Only getters whose signature differs from the embedded *Envelope's
+// getters are overridden — all of them delegate straight to runtime
+// constructors in the goconst package.
+func (x *_Envelope_Const) GetAddr() Address_Const {
+	return x.Envelope.GetAddr().AsConst()
+}
+func (x *_Envelope_Const) GetHistory() goconst.Slice[Address_Const] {
+	return goconst.NewSlice2[Address_Const](x.Envelope.GetHistory())
+}
+func (x *_Envelope_Const) GetByTag() goconst.Map[string, Address_Const] {
+	return goconst.NewMap2[string, Address_Const](x.Envelope.GetByTag())
+}
 ```
+
+`goconst.Slice[T]` / `goconst.Map[K, V]` are defined in this repo's
+root package (see [goconst.go](goconst.go)) and offer:
+
+```go
+type Slice[T any] interface {
+    Len() int
+    At(i int) T
+    All() iter.Seq2[int, T]   // for i, v := range s.All()
+}
+
+type Map[K comparable, V any] interface {
+    Len() int
+    Get(k K) (V, bool)
+    Has(k K) bool
+    All() iter.Seq2[K, V]     // for k, v := range m.All()
+}
+```
+
+so callers keep O(1) length / indexed / keyed access *and* the familiar
+range-over-func syntax, but lose `append` / slot assignment at the type
+level. The two concrete implementations are provided by the `goconst`
+package itself via
+
+```go
+// Scalar / excluded-package elements — pass values through unchanged.
+func NewSlice[T any](s []T) Slice[T]
+func NewMap[K comparable, V any](m map[K]V) Map[K, V]
+
+// Message elements — project each element via its AsConst() method.
+type Constable[T any] interface{ AsConst() T }
+func NewSlice2[T any, E Constable[T]](s []E) Slice[T]
+func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V]
+```
+
+so the plugin only has to emit a **one-line override getter** per
+repeated / map field — no per-field wrapper struct is generated.
 
 Key design points:
 
@@ -71,11 +130,13 @@ Key design points:
   embedded `*Envelope`'s getter — no override is emitted.
 * **Singular message fields** are lifted to the callee's `*_Const` view,
   and an override calls `x.Envelope.GetAddr().AsConst()`.
-* **Repeated and map fields** switch from `[]T` / `map[K]T` to
-  [`iter.Seq2`](https://pkg.go.dev/iter) so the caller cannot `append`,
-  re-slice, or assign into the collection. The override range-iterates
-  the underlying slice/map and yields each element (optionally via its
-  `AsConst()` view).
+* **Repeated fields** switch from `[]T` to `goconst.Slice[T_Const]` (or
+  `goconst.Slice[T]` for scalar element types). The override delegates
+  to `goconst.NewSlice2[T_Const](...)` for message elements and to
+  `goconst.NewSlice(...)` for scalar / excluded-package elements.
+* **Map fields** switch from `map[K]V` to `goconst.Map[K, V_Const]`
+  (or `goconst.Map[K, V]` for scalar values), likewise delegating to
+  `goconst.NewMap2[K, V_Const](...)` or `goconst.NewMap(...)`.
 * **`oneof`** is supported; each arm's getter is declared on the
   interface with the appropriate element type (concrete for scalars,
   `_Const` for messages).
@@ -116,7 +177,7 @@ plugins:
     opt:
       - paths=source_relative
 
-  - local: [ "go", "run", "github.com/Kybxd/protoc-gen-go-const/cmd/protoc-gen-go-const" ]
+  - local: [ "go", "run", "github.com/Kybxd/goconst/cmd/protoc-gen-go-const" ]
     out: gen/go
     opt:
       - paths=source_relative
@@ -124,6 +185,11 @@ plugins:
       # - exclude_packages=google.golang.org/protobuf/types/known/timestamppb
     strategy: all
 ```
+
+Consumers of the generated code must also have
+`github.com/Kybxd/goconst` in their `go.mod` (a `go mod tidy` after the
+first `buf generate` will add it automatically, since `*.const.pb.go`
+imports it).
 
 Then run `buf generate` as usual. For every `foo.proto` you will get two
 files side by side:
@@ -164,14 +230,15 @@ Typical use cases:
 
 ```
 .
-├── cmd/protoc-gen-go-const/   # the plugin binary (package main)
-├── examples/                  # hand-crafted protos exercising every branch
-│   ├── proto/testdata/...     # source .proto files
-│   ├── gen/go/testdata/...    # generated .pb.go + .const.pb.go (checked in as golden)
+├── goconst.go                  # runtime Slice / Map interfaces (imported by generated code)
+├── cmd/protoc-gen-go-const/    # the plugin binary (package main)
+├── examples/                   # hand-crafted protos exercising every branch
+│   ├── proto/testdata/...      # source .proto files
+│   ├── gen/go/testdata/...     # generated .pb.go + .const.pb.go (checked in as golden)
 │   ├── buf.yaml
 │   └── buf.gen.yaml
 ├── go.mod
-└── README.md                  # this file
+└── README.md                   # this file
 ```
 
 See [examples/README.md](examples/README.md) for what each example proto

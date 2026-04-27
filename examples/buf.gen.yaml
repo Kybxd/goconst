@@ -3,7 +3,7 @@ managed:
   enabled: true
   override:
     - file_option: go_package_prefix
-      value: github.com/Kybxd/protoc-gen-go-const/examples/gen/go
+      value: github.com/Kybxd/goconst/examples/gen/go
 plugins:
   # Pinned to match google.golang.org/protobuf in ../go.mod (v1.36.11).
   - remote: buf.build/protocolbuffers/go:v1.36.11
@@ -19,7 +19,7 @@ plugins:
       # references to it will keep the concrete *Type in the enclosing Const
       # interfaces. Enabled by default below; comment the next line out to
       # see how generation looks without the flag.
-      - exclude_packages=github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/external
+      - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/testdata/external
       # Well-known types ship without any *_Const / AsConst of their own, so
       # they must be excluded explicitly — otherwise generated code would
       # call .AsConst() on e.g. *timestamppb.Timestamp and fail to build.

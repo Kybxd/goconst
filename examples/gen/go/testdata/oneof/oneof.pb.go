@@ -11,7 +11,7 @@
 package oneof
 
 import (
-	nested "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/nested"
+	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -150,9 +150,9 @@ const file_testdata_oneof_oneof_proto_rawDesc = "" +
 	" \x01(\tH\x00R\x04note\x12\x16\n" +
 	"\x05count\x18\v \x01(\x05H\x00R\x05count\x126\n" +
 	"\blocation\x18\f \x01(\v2\x18.testdata.nested.AddressH\x00R\blocationB\t\n" +
-	"\apayloadB\xbe\x01\n" +
+	"\apayloadB\xb2\x01\n" +
 	"\x12com.testdata.oneofB\n" +
-	"OneofProtoP\x01ZCgithub.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/oneof\xa2\x02\x03TOX\xaa\x02\x0eTestdata.Oneof\xca\x02\x0eTestdata\\Oneof\xe2\x02\x1aTestdata\\Oneof\\GPBMetadata\xea\x02\x0fTestdata::Oneofb\x06proto3"
+	"OneofProtoP\x01Z7github.com/Kybxd/goconst/examples/gen/go/testdata/oneof\xa2\x02\x03TOX\xaa\x02\x0eTestdata.Oneof\xca\x02\x0eTestdata\\Oneof\xe2\x02\x1aTestdata\\Oneof\\GPBMetadata\xea\x02\x0fTestdata::Oneofb\x06proto3"
 
 var (
 	file_testdata_oneof_oneof_proto_rawDescOnce sync.Once

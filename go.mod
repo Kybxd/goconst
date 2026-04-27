@@ -1,4 +1,4 @@
-module github.com/Kybxd/protoc-gen-go-const
+module github.com/Kybxd/goconst
 
 go 1.24.5
 

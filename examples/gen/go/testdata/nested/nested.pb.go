@@ -291,8 +291,8 @@ const file_testdata_nested_nested_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aX\n" +
 	"\x10AddressBookEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x03R\x03key\x12.\n" +
-	"\x05value\x18\x02 \x01(\v2\x18.testdata.nested.AddressR\x05value:\x028\x01B\xc5\x01\n" +
-	"\x13com.testdata.nestedB\vNestedProtoP\x01ZDgithub.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/nested\xa2\x02\x03TNX\xaa\x02\x0fTestdata.Nested\xca\x02\x0fTestdata\\Nested\xe2\x02\x1bTestdata\\Nested\\GPBMetadata\xea\x02\x10Testdata::Nestedb\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x18.testdata.nested.AddressR\x05value:\x028\x01B\xb9\x01\n" +
+	"\x13com.testdata.nestedB\vNestedProtoP\x01Z8github.com/Kybxd/goconst/examples/gen/go/testdata/nested\xa2\x02\x03TNX\xaa\x02\x0fTestdata.Nested\xca\x02\x0fTestdata\\Nested\xe2\x02\x1bTestdata\\Nested\\GPBMetadata\xea\x02\x10Testdata::Nestedb\x06proto3"
 
 var (
 	file_testdata_nested_nested_proto_rawDescOnce sync.Once

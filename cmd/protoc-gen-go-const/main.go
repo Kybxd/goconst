@@ -17,8 +17,11 @@ const version = "0.1.0"
 // protoPackage is the import path of the runtime proto package.
 const protoPackage = protogen.GoImportPath("google.golang.org/protobuf/proto")
 
-// iterPackage is the import path of the stdlib iter package.
-const iterPackage = protogen.GoImportPath("iter")
+// goconstPackage is the import path of this repo's runtime helper package,
+// which exposes the read-only Slice / Map interfaces and the
+// NewSlice / NewSlice2 / NewMap / NewMap2 constructors used by generated
+// *_Const views for repeated / map fields.
+const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
 
 func main() {
 	var flags pflag.FlagSet
@@ -172,13 +175,13 @@ func (x *Generator) fieldConstType(field *protogen.Field) string {
 	switch {
 	case field.Desc.IsList():
 		elem := x.fieldElemConstType(field)
-		return fmt.Sprintf("%s[int, %s]", g.QualifiedGoIdent(iterPackage.Ident("Seq2")), elem)
+		return fmt.Sprintf("%s[%s]", g.QualifiedGoIdent(goconstPackage.Ident("Slice")), elem)
 	case field.Desc.IsMap():
 		keyField := field.Message.Fields[0]
 		valField := field.Message.Fields[1]
 		keyType := x.fieldGoType(keyField)
 		valType := x.fieldElemConstType(valField)
-		return fmt.Sprintf("%s[%s, %s]", g.QualifiedGoIdent(iterPackage.Ident("Seq2")), keyType, valType)
+		return fmt.Sprintf("%s[%s, %s]", g.QualifiedGoIdent(goconstPackage.Ident("Map")), keyType, valType)
 	case field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind:
 		return x.messageConstGoType(field.Message)
 	default:
@@ -272,7 +275,10 @@ func (x *Generator) scalarFieldGoType(field *protogen.Field) string {
 
 // genOverrideGetter emits a Get* method on the _<MessageName>_Const wrapper
 // whenever its signature differs from the embedded concrete message's getter,
-// i.e. for message / list / map fields.
+// i.e. for message / list / map fields. List and map fields delegate to the
+// runtime constructors goconst.NewSlice / goconst.NewSlice2 / goconst.NewMap
+// / goconst.NewMap2; the *2 variants are chosen for element types that
+// expose an AsConst() view (see goconst.Constable).
 func (x *Generator) genOverrideGetter(message *protogen.Message, field *protogen.Field) {
 	g := x.g()
 	msgName := message.GoIdent.GoName
@@ -281,45 +287,42 @@ func (x *Generator) genOverrideGetter(message *protogen.Message, field *protogen
 	switch {
 	case field.Desc.IsList():
 		elemConstType := x.fieldElemConstType(field)
-		retType := fmt.Sprintf("%s[int, %s]", g.QualifiedGoIdent(iterPackage.Ident("Seq2")), elemConstType)
+		wrapAsConst := x.isMessageElem(field) && !x.shouldExcludeMessage(field.Message)
+		retType := fmt.Sprintf("%s[%s]", g.QualifiedGoIdent(goconstPackage.Ident("Slice")), elemConstType)
+
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
-		g.P("return func(yield func(int, ", elemConstType, ") bool) {")
-		g.P("for i, v := range x.", msgName, ".Get", field.GoName, "() {")
-		// Check if this element is a message from an excluded package
-		if x.isMessageElem(field) && !x.shouldExcludeMessage(field.Message) {
-			g.P("if !yield(i, v.AsConst()) {")
+		if wrapAsConst {
+			// NewSlice2 needs the projected type T as an explicit type
+			// argument because it only appears in the Constable[T]
+			// constraint, not in the function's value parameter list.
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice2")), "[", elemConstType, "](x.", msgName, ".Get", field.GoName, "())")
 		} else {
-			g.P("if !yield(i, v) {")
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice")), "(x.", msgName, ".Get", field.GoName, "())")
 		}
-		g.P("return")
-		g.P("}")
-		g.P("}")
-		g.P("}")
 		g.P("}")
 		g.P()
+
 	case field.Desc.IsMap():
 		keyField := field.Message.Fields[0]
 		valField := field.Message.Fields[1]
 		keyType := x.fieldGoType(keyField)
 		valConstType := x.fieldElemConstType(valField)
-		retType := fmt.Sprintf("%s[%s, %s]", g.QualifiedGoIdent(iterPackage.Ident("Seq2")), keyType, valConstType)
+		wrapAsConst := x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message)
+		retType := fmt.Sprintf("%s[%s, %s]", g.QualifiedGoIdent(goconstPackage.Ident("Map")), keyType, valConstType)
+
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
-		g.P("return func(yield func(", keyType, ", ", valConstType, ") bool) {")
-		g.P("for k, v := range x.", msgName, ".Get", field.GoName, "() {")
-		// Check if this value is a message from an excluded package
-		if x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message) {
-			g.P("if !yield(k, v.AsConst()) {")
+		if wrapAsConst {
+			// NewMap2 needs [K, V] as explicit type arguments for the
+			// same reason as NewSlice2 above.
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")), "[", keyType, ", ", valConstType, "](x.", msgName, ".Get", field.GoName, "())")
 		} else {
-			g.P("if !yield(k, v) {")
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap")), "(x.", msgName, ".Get", field.GoName, "())")
 		}
-		g.P("return")
-		g.P("}")
-		g.P("}")
-		g.P("}")
 		g.P("}")
 		g.P()
+
 	case field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind:
-		// Skip override getter for excluded packages
+		// Skip override getter for excluded packages.
 		if x.shouldExcludeMessage(field.Message) {
 			return
 		}

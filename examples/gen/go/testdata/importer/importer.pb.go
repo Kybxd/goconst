@@ -20,8 +20,8 @@
 package importer
 
 import (
-	external "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/external"
-	nested "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/nested"
+	external "github.com/Kybxd/goconst/examples/gen/go/testdata/external"
+	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -160,8 +160,8 @@ const file_testdata_importer_importer_proto_rawDesc = "" +
 	"\n" +
 	"TsMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01B\xd3\x01\n" +
-	"\x15com.testdata.importerB\rImporterProtoP\x01ZFgithub.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/importer\xa2\x02\x03TIX\xaa\x02\x11Testdata.Importer\xca\x02\x11Testdata\\Importer\xe2\x02\x1dTestdata\\Importer\\GPBMetadata\xea\x02\x12Testdata::Importerb\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01B\xc7\x01\n" +
+	"\x15com.testdata.importerB\rImporterProtoP\x01Z:github.com/Kybxd/goconst/examples/gen/go/testdata/importer\xa2\x02\x03TIX\xaa\x02\x11Testdata.Importer\xca\x02\x11Testdata\\Importer\xe2\x02\x1dTestdata\\Importer\\GPBMetadata\xea\x02\x12Testdata::Importerb\x06proto3"
 
 var (
 	file_testdata_importer_importer_proto_rawDescOnce sync.Once

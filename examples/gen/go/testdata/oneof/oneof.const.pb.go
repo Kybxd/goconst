@@ -7,7 +7,7 @@
 package oneof
 
 import (
-	nested "github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/nested"
+	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
 	proto "google.golang.org/protobuf/proto"
 )
 

@@ -7,8 +7,8 @@
 package nested
 
 import (
+	goconst "github.com/Kybxd/goconst"
 	proto "google.golang.org/protobuf/proto"
-	iter "iter"
 )
 
 // Address_Const is a read-only interface of Address.
@@ -38,10 +38,10 @@ type Person_Const interface {
 	GetName() string
 	GetAge() int32
 	GetHome() Address_Const
-	GetTags() iter.Seq2[int, string]
-	GetPrevAddresses() iter.Seq2[int, Address_Const]
-	GetAttributes() iter.Seq2[string, string]
-	GetAddressBook() iter.Seq2[int64, Address_Const]
+	GetTags() goconst.Slice[string]
+	GetPrevAddresses() goconst.Slice[Address_Const]
+	GetAttributes() goconst.Map[string, string]
+	GetAddressBook() goconst.Map[int64, Address_Const]
 	GetContact() Person_Contact_Const
 }
 
@@ -60,44 +60,20 @@ func (x *_Person_Const) GetHome() Address_Const {
 	return x.Person.GetHome().AsConst()
 }
 
-func (x *_Person_Const) GetTags() iter.Seq2[int, string] {
-	return func(yield func(int, string) bool) {
-		for i, v := range x.Person.GetTags() {
-			if !yield(i, v) {
-				return
-			}
-		}
-	}
+func (x *_Person_Const) GetTags() goconst.Slice[string] {
+	return goconst.NewSlice(x.Person.GetTags())
 }
 
-func (x *_Person_Const) GetPrevAddresses() iter.Seq2[int, Address_Const] {
-	return func(yield func(int, Address_Const) bool) {
-		for i, v := range x.Person.GetPrevAddresses() {
-			if !yield(i, v.AsConst()) {
-				return
-			}
-		}
-	}
+func (x *_Person_Const) GetPrevAddresses() goconst.Slice[Address_Const] {
+	return goconst.NewSlice2[Address_Const](x.Person.GetPrevAddresses())
 }
 
-func (x *_Person_Const) GetAttributes() iter.Seq2[string, string] {
-	return func(yield func(string, string) bool) {
-		for k, v := range x.Person.GetAttributes() {
-			if !yield(k, v) {
-				return
-			}
-		}
-	}
+func (x *_Person_Const) GetAttributes() goconst.Map[string, string] {
+	return goconst.NewMap(x.Person.GetAttributes())
 }
 
-func (x *_Person_Const) GetAddressBook() iter.Seq2[int64, Address_Const] {
-	return func(yield func(int64, Address_Const) bool) {
-		for k, v := range x.Person.GetAddressBook() {
-			if !yield(k, v.AsConst()) {
-				return
-			}
-		}
-	}
+func (x *_Person_Const) GetAddressBook() goconst.Map[int64, Address_Const] {
+	return goconst.NewMap2[int64, Address_Const](x.Person.GetAddressBook())
 }
 
 func (x *_Person_Const) GetContact() Person_Contact_Const {
@@ -109,8 +85,8 @@ type Person_Contact_Const interface {
 	proto.Message
 
 	GetEmail() string
-	GetPhones() iter.Seq2[int, string]
-	GetLocations() iter.Seq2[string, Address_Const]
+	GetPhones() goconst.Slice[string]
+	GetLocations() goconst.Map[string, Address_Const]
 }
 
 type _Person_Contact_Const struct {
@@ -124,22 +100,10 @@ func (x *Person_Contact) AsConst() Person_Contact_Const {
 	return &_Person_Contact_Const{Person_Contact: x}
 }
 
-func (x *_Person_Contact_Const) GetPhones() iter.Seq2[int, string] {
-	return func(yield func(int, string) bool) {
-		for i, v := range x.Person_Contact.GetPhones() {
-			if !yield(i, v) {
-				return
-			}
-		}
-	}
+func (x *_Person_Contact_Const) GetPhones() goconst.Slice[string] {
+	return goconst.NewSlice(x.Person_Contact.GetPhones())
 }
 
-func (x *_Person_Contact_Const) GetLocations() iter.Seq2[string, Address_Const] {
-	return func(yield func(string, Address_Const) bool) {
-		for k, v := range x.Person_Contact.GetLocations() {
-			if !yield(k, v.AsConst()) {
-				return
-			}
-		}
-	}
+func (x *_Person_Contact_Const) GetLocations() goconst.Map[string, Address_Const] {
+	return goconst.NewMap2[string, Address_Const](x.Person_Contact.GetLocations())
 }

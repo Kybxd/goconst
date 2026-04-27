@@ -46,7 +46,7 @@ how your changes affect the produced code.
 enabled:
 
 ```yaml
-- exclude_packages=github.com/Kybxd/protoc-gen-go-const/examples/gen/go/testdata/external
+- exclude_packages=github.com/Kybxd/goconst/examples/gen/go/testdata/external
 - exclude_packages=google.golang.org/protobuf/types/known/timestamppb
 ```
 
@@ -57,11 +57,11 @@ With both on you can verify (mainly in
   (its `.const.pb.go` may be absent entirely).
 * Inside `Envelope_Const`:
   * `GetExt()`        returns `*external.External` (concrete type).
-  * `GetExtras()`     returns `iter.Seq2[int, *external.External]`.
-  * `GetExtMap()`     returns `iter.Seq2[string, *external.External]`.
+  * `GetExtras()`     returns `goconst.Slice[*external.External]`.
+  * `GetExtMap()`     returns `goconst.Map[string, *external.External]`.
   * `GetCreatedAt()`  returns `*timestamppb.Timestamp`.
-  * `GetHistory()`    returns `iter.Seq2[int, *timestamppb.Timestamp]`.
-  * `GetTsMap()`      returns `iter.Seq2[string, *timestamppb.Timestamp]`.
+  * `GetHistory()`    returns `goconst.Slice[*timestamppb.Timestamp]`.
+  * `GetTsMap()`      returns `goconst.Map[string, *timestamppb.Timestamp]`.
   * None of the overridden getters call `.AsConst()` on excluded values.
 
 To see the **opposite** behaviour for the in-repo `external` package,
