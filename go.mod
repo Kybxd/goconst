@@ -1,6 +1,6 @@
 module github.com/Kybxd/goconst
 
-go 1.24.5
+go 1.23
 
 require (
 	github.com/spf13/pflag v1.0.10
