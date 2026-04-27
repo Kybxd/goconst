@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 // protoPackage is the import path of the runtime proto package.
 const protoPackage = protogen.GoImportPath("google.golang.org/protobuf/proto")
