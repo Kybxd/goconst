@@ -1,0 +1,35 @@
+// importer.proto references messages from other packages to verify that
+// protoc-gen-go-const correctly emits cross-package imports for:
+//   * a message from a NON-excluded in-repo package (uses its *_Const
+//     interface),
+//   * a message from an excluded in-repo package (keeps the concrete
+//     *External and does not call AsConst on it), and
+//   * a message from a well-known-type package (google.protobuf.Timestamp)
+//     whose Go package (google.golang.org/protobuf/types/known/timestamppb)
+//     is listed in --exclude_packages, so it is also treated as
+//     "concrete pointer, no AsConst" in singular / repeated / map positions.
+//     This doubles as the reason WKTs must be manually excluded today: they
+//     ship without any *_Const / AsConst of their own.
+syntax = "proto3";
+
+package testdata.importer;
+
+import "google/protobuf/timestamp.proto";
+import "testdata/external/external.proto";
+import "testdata/nested/nested.proto";
+
+message Envelope {
+  string id = 1;
+  testdata.nested.Address addr = 2;   // always gets Address_Const
+  testdata.external.External ext = 3; // keeps *External when excluded
+  repeated testdata.external.External extras =
+      4; // list of excluded-type messages
+  map<string, testdata.external.External> ext_map =
+      5; // map of excluded-type values
+
+  // WKT (google.protobuf.Timestamp): excluded via --exclude_packages so
+  // references keep the concrete *timestamppb.Timestamp.
+  google.protobuf.Timestamp created_at = 6;
+  repeated google.protobuf.Timestamp history = 7;
+  map<string, google.protobuf.Timestamp> ts_map = 8;
+}

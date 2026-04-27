@@ -1,0 +1,25 @@
+// oneof.proto verifies the generator's handling of oneof fields, including
+// oneof arms that point at messages defined in another file (cross-file
+// QualifiedGoIdent / import emission).
+syntax = "proto3";
+
+package testdata.oneof;
+
+import "testdata/nested/nested.proto";
+
+// Event has an exactly-one payload: either a scalar string, an int or an
+// Address (imported from the nested package). The generated Event_Const
+// interface must:
+//   - expose Get{Note,Count}() returning scalars
+//   - expose GetLocation() returning testdata.nested.Address_Const
+//   - leave Event's oneof case accessor alone (generator currently emits
+//     only field-level getters, which is what we want to verify).
+message Event {
+  string id = 1;
+
+  oneof payload {
+    string note = 10;
+    int32 count = 11;
+    testdata.nested.Address location = 12;
+  }
+}

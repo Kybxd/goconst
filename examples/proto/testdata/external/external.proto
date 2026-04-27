@@ -1,0 +1,15 @@
+// external.proto contains a message that is primarily intended to be
+// referenced from other packages. Combined with protoc-gen-go-const's
+// --exclude_packages flag, it lets us verify that:
+//   * when this package IS excluded, generated *_Const interfaces in other
+//     packages keep the original *External return type and do NOT call
+//     AsConst() on values from here (no _Const is emitted for it);
+//   * when this package is NOT excluded, it gets its own External_Const.
+syntax = "proto3";
+
+package testdata.external;
+
+message External {
+  string token = 1;
+  int64 ts = 2;
+}

@@ -1,0 +1,46 @@
+// nested.proto exercises nested messages, repeated fields and maps with
+// both scalar and message values. The generated *_Const interface should
+// expose repeated/map fields as iter.Seq2 and recursively emit Const
+// interfaces for nested messages.
+syntax = "proto3";
+
+package testdata.nested;
+
+// Address is referenced by Person both as a singular field and as map/list
+// values to exercise every message-valued code path.
+message Address {
+  string street = 1;
+  string city = 2;
+  string zip = 3;
+}
+
+// Person exercises:
+//   - singular message field (Address)
+//   - repeated scalar (tags)
+//   - repeated message (prev_addresses)
+//   - map with scalar value (attributes)
+//   - map with message value (address_book)
+//   - nested message type (Contact) that itself holds a message/repeated/map
+message Person {
+  // Contact is a nested message so we verify recursion into
+  // message.Messages inside the generator.
+  message Contact {
+    string email = 1;
+    repeated string phones = 2;
+    // map with message value, ensures the nested-message branch is
+    // recursed into even from within a nested type.
+    map<string, Address> locations = 3;
+  }
+
+  string name = 1;
+  int32 age = 2;
+  Address home = 3;
+
+  repeated string tags = 4;
+  repeated Address prev_addresses = 5;
+
+  map<string, string> attributes = 6;
+  map<int64, Address> address_book = 7;
+
+  Contact contact = 8;
+}
