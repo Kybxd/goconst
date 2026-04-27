@@ -12,20 +12,18 @@
 //     ship without any *_Const / AsConst of their own.
 syntax = "proto3";
 
-package testdata.importer;
+package importer;
 
 import "google/protobuf/timestamp.proto";
-import "testdata/external/external.proto";
-import "testdata/nested/nested.proto";
+import "external/external.proto";
+import "nested/nested.proto";
 
 message Envelope {
   string id = 1;
-  testdata.nested.Address addr = 2;   // always gets Address_Const
-  testdata.external.External ext = 3; // keeps *External when excluded
-  repeated testdata.external.External extras =
-      4; // list of excluded-type messages
-  map<string, testdata.external.External> ext_map =
-      5; // map of excluded-type values
+  nested.Address addr = 2;                    // always gets Address_Const
+  external.External ext = 3;                  // keeps *External when excluded
+  repeated external.External extras = 4;      // list of excluded-type messages
+  map<string, external.External> ext_map = 5; // map of excluded-type values
 
   // WKT (google.protobuf.Timestamp): excluded via --exclude_packages so
   // references keep the concrete *timestamppb.Timestamp.

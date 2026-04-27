@@ -4,7 +4,7 @@
 // interfaces for nested messages.
 syntax = "proto3";
 
-package testdata.nested;
+package nested;
 
 // Address is referenced by Person both as a singular field and as map/list
 // values to exercise every message-valued code path.

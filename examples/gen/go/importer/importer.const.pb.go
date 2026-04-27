@@ -2,14 +2,14 @@
 // versions:
 //  protoc-gen-go-const v0.1.1
 //  protoc              (unknown)
-// source: testdata/importer/importer.proto
+// source: importer/importer.proto
 
 package importer
 
 import (
 	goconst "github.com/Kybxd/goconst"
-	external "github.com/Kybxd/goconst/examples/gen/go/testdata/external"
-	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
+	external "github.com/Kybxd/goconst/examples/gen/go/external"
+	nested "github.com/Kybxd/goconst/examples/gen/go/nested"
 	proto "google.golang.org/protobuf/proto"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )

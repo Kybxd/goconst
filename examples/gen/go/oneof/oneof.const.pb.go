@@ -2,12 +2,12 @@
 // versions:
 //  protoc-gen-go-const v0.1.1
 //  protoc              (unknown)
-// source: testdata/oneof/oneof.proto
+// source: oneof/oneof.proto
 
 package oneof
 
 import (
-	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
+	nested "github.com/Kybxd/goconst/examples/gen/go/nested"
 	proto "google.golang.org/protobuf/proto"
 )
 

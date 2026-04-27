@@ -2,7 +2,7 @@
 // versions:
 //  protoc-gen-go-const v0.1.1
 //  protoc              (unknown)
-// source: testdata/scalar/scalar.proto
+// source: scalar/scalar.proto
 
 package scalar
 

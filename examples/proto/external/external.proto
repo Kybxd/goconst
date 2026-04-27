@@ -7,7 +7,7 @@
 //   * when this package is NOT excluded, it gets its own External_Const.
 syntax = "proto3";
 
-package testdata.external;
+package external;
 
 message External {
   string token = 1;

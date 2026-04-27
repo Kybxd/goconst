@@ -236,8 +236,8 @@ Typical use cases:
 ├── goconst.go                  # runtime Slice / Map interfaces (imported by generated code)
 ├── cmd/protoc-gen-go-const/    # the plugin binary (package main)
 ├── examples/                   # hand-crafted protos exercising every branch
-│   ├── proto/testdata/...      # source .proto files
-│   ├── gen/go/testdata/...     # generated .pb.go + .const.pb.go (checked in as golden)
+│   ├── proto/<leaf>/           # source .proto files
+│   ├── gen/go/<leaf>/          # generated .pb.go + .const.pb.go (checked in as golden)
 │   ├── buf.yaml
 │   └── buf.gen.yaml
 ├── go.mod

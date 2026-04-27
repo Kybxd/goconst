@@ -7,7 +7,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: testdata/nested/nested.proto
+// source: nested/nested.proto
 
 package nested
 
@@ -39,7 +39,7 @@ type Address struct {
 
 func (x *Address) Reset() {
 	*x = Address{}
-	mi := &file_testdata_nested_nested_proto_msgTypes[0]
+	mi := &file_nested_nested_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +51,7 @@ func (x *Address) String() string {
 func (*Address) ProtoMessage() {}
 
 func (x *Address) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_nested_nested_proto_msgTypes[0]
+	mi := &file_nested_nested_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +64,7 @@ func (x *Address) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Address.ProtoReflect.Descriptor instead.
 func (*Address) Descriptor() ([]byte, []int) {
-	return file_testdata_nested_nested_proto_rawDescGZIP(), []int{0}
+	return file_nested_nested_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Address) GetStreet() string {
@@ -111,7 +111,7 @@ type Person struct {
 
 func (x *Person) Reset() {
 	*x = Person{}
-	mi := &file_testdata_nested_nested_proto_msgTypes[1]
+	mi := &file_nested_nested_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -123,7 +123,7 @@ func (x *Person) String() string {
 func (*Person) ProtoMessage() {}
 
 func (x *Person) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_nested_nested_proto_msgTypes[1]
+	mi := &file_nested_nested_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -136,7 +136,7 @@ func (x *Person) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Person.ProtoReflect.Descriptor instead.
 func (*Person) Descriptor() ([]byte, []int) {
-	return file_testdata_nested_nested_proto_rawDescGZIP(), []int{1}
+	return file_nested_nested_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Person) GetName() string {
@@ -210,7 +210,7 @@ type Person_Contact struct {
 
 func (x *Person_Contact) Reset() {
 	*x = Person_Contact{}
-	mi := &file_testdata_nested_nested_proto_msgTypes[2]
+	mi := &file_nested_nested_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -222,7 +222,7 @@ func (x *Person_Contact) String() string {
 func (*Person_Contact) ProtoMessage() {}
 
 func (x *Person_Contact) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_nested_nested_proto_msgTypes[2]
+	mi := &file_nested_nested_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -235,7 +235,7 @@ func (x *Person_Contact) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Person_Contact.ProtoReflect.Descriptor instead.
 func (*Person_Contact) Descriptor() ([]byte, []int) {
-	return file_testdata_nested_nested_proto_rawDescGZIP(), []int{1, 0}
+	return file_nested_nested_proto_rawDescGZIP(), []int{1, 0}
 }
 
 func (x *Person_Contact) GetEmail() string {
@@ -259,71 +259,72 @@ func (x *Person_Contact) GetLocations() map[string]*Address {
 	return nil
 }
 
-var File_testdata_nested_nested_proto protoreflect.FileDescriptor
+var File_nested_nested_proto protoreflect.FileDescriptor
 
-const file_testdata_nested_nested_proto_rawDesc = "" +
+const file_nested_nested_proto_rawDesc = "" +
 	"\n" +
-	"\x1ctestdata/nested/nested.proto\x12\x0ftestdata.nested\"G\n" +
+	"\x13nested/nested.proto\x12\x06nested\"G\n" +
 	"\aAddress\x12\x16\n" +
 	"\x06street\x18\x01 \x01(\tR\x06street\x12\x12\n" +
 	"\x04city\x18\x02 \x01(\tR\x04city\x12\x10\n" +
-	"\x03zip\x18\x03 \x01(\tR\x03zip\"\xfb\x05\n" +
+	"\x03zip\x18\x03 \x01(\tR\x03zip\"\xb3\x05\n" +
 	"\x06Person\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
-	"\x03age\x18\x02 \x01(\x05R\x03age\x12,\n" +
-	"\x04home\x18\x03 \x01(\v2\x18.testdata.nested.AddressR\x04home\x12\x12\n" +
-	"\x04tags\x18\x04 \x03(\tR\x04tags\x12?\n" +
-	"\x0eprev_addresses\x18\x05 \x03(\v2\x18.testdata.nested.AddressR\rprevAddresses\x12G\n" +
+	"\x03age\x18\x02 \x01(\x05R\x03age\x12#\n" +
+	"\x04home\x18\x03 \x01(\v2\x0f.nested.AddressR\x04home\x12\x12\n" +
+	"\x04tags\x18\x04 \x03(\tR\x04tags\x126\n" +
+	"\x0eprev_addresses\x18\x05 \x03(\v2\x0f.nested.AddressR\rprevAddresses\x12>\n" +
 	"\n" +
-	"attributes\x18\x06 \x03(\v2'.testdata.nested.Person.AttributesEntryR\n" +
-	"attributes\x12K\n" +
-	"\faddress_book\x18\a \x03(\v2(.testdata.nested.Person.AddressBookEntryR\vaddressBook\x129\n" +
-	"\acontact\x18\b \x01(\v2\x1f.testdata.nested.Person.ContactR\acontact\x1a\xdd\x01\n" +
+	"attributes\x18\x06 \x03(\v2\x1e.nested.Person.AttributesEntryR\n" +
+	"attributes\x12B\n" +
+	"\faddress_book\x18\a \x03(\v2\x1f.nested.Person.AddressBookEntryR\vaddressBook\x120\n" +
+	"\acontact\x18\b \x01(\v2\x16.nested.Person.ContactR\acontact\x1a\xcb\x01\n" +
 	"\aContact\x12\x14\n" +
 	"\x05email\x18\x01 \x01(\tR\x05email\x12\x16\n" +
-	"\x06phones\x18\x02 \x03(\tR\x06phones\x12L\n" +
-	"\tlocations\x18\x03 \x03(\v2..testdata.nested.Person.Contact.LocationsEntryR\tlocations\x1aV\n" +
+	"\x06phones\x18\x02 \x03(\tR\x06phones\x12C\n" +
+	"\tlocations\x18\x03 \x03(\v2%.nested.Person.Contact.LocationsEntryR\tlocations\x1aM\n" +
 	"\x0eLocationsEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
-	"\x05value\x18\x02 \x01(\v2\x18.testdata.nested.AddressR\x05value:\x028\x01\x1a=\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12%\n" +
+	"\x05value\x18\x02 \x01(\v2\x0f.nested.AddressR\x05value:\x028\x01\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aX\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aO\n" +
 	"\x10AddressBookEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\x03R\x03key\x12.\n" +
-	"\x05value\x18\x02 \x01(\v2\x18.testdata.nested.AddressR\x05value:\x028\x01B\xb9\x01\n" +
-	"\x13com.testdata.nestedB\vNestedProtoP\x01Z8github.com/Kybxd/goconst/examples/gen/go/testdata/nested\xa2\x02\x03TNX\xaa\x02\x0fTestdata.Nested\xca\x02\x0fTestdata\\Nested\xe2\x02\x1bTestdata\\Nested\\GPBMetadata\xea\x02\x10Testdata::Nestedb\x06proto3"
+	"\x03key\x18\x01 \x01(\x03R\x03key\x12%\n" +
+	"\x05value\x18\x02 \x01(\v2\x0f.nested.AddressR\x05value:\x028\x01B\x82\x01\n" +
+	"\n" +
+	"com.nestedB\vNestedProtoP\x01Z/github.com/Kybxd/goconst/examples/gen/go/nested\xa2\x02\x03NXX\xaa\x02\x06Nested\xca\x02\x06Nested\xe2\x02\x12Nested\\GPBMetadata\xea\x02\x06Nestedb\x06proto3"
 
 var (
-	file_testdata_nested_nested_proto_rawDescOnce sync.Once
-	file_testdata_nested_nested_proto_rawDescData []byte
+	file_nested_nested_proto_rawDescOnce sync.Once
+	file_nested_nested_proto_rawDescData []byte
 )
 
-func file_testdata_nested_nested_proto_rawDescGZIP() []byte {
-	file_testdata_nested_nested_proto_rawDescOnce.Do(func() {
-		file_testdata_nested_nested_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_testdata_nested_nested_proto_rawDesc), len(file_testdata_nested_nested_proto_rawDesc)))
+func file_nested_nested_proto_rawDescGZIP() []byte {
+	file_nested_nested_proto_rawDescOnce.Do(func() {
+		file_nested_nested_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_nested_nested_proto_rawDesc), len(file_nested_nested_proto_rawDesc)))
 	})
-	return file_testdata_nested_nested_proto_rawDescData
+	return file_nested_nested_proto_rawDescData
 }
 
-var file_testdata_nested_nested_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_testdata_nested_nested_proto_goTypes = []any{
-	(*Address)(nil),        // 0: testdata.nested.Address
-	(*Person)(nil),         // 1: testdata.nested.Person
-	(*Person_Contact)(nil), // 2: testdata.nested.Person.Contact
-	nil,                    // 3: testdata.nested.Person.AttributesEntry
-	nil,                    // 4: testdata.nested.Person.AddressBookEntry
-	nil,                    // 5: testdata.nested.Person.Contact.LocationsEntry
+var file_nested_nested_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_nested_nested_proto_goTypes = []any{
+	(*Address)(nil),        // 0: nested.Address
+	(*Person)(nil),         // 1: nested.Person
+	(*Person_Contact)(nil), // 2: nested.Person.Contact
+	nil,                    // 3: nested.Person.AttributesEntry
+	nil,                    // 4: nested.Person.AddressBookEntry
+	nil,                    // 5: nested.Person.Contact.LocationsEntry
 }
-var file_testdata_nested_nested_proto_depIdxs = []int32{
-	0, // 0: testdata.nested.Person.home:type_name -> testdata.nested.Address
-	0, // 1: testdata.nested.Person.prev_addresses:type_name -> testdata.nested.Address
-	3, // 2: testdata.nested.Person.attributes:type_name -> testdata.nested.Person.AttributesEntry
-	4, // 3: testdata.nested.Person.address_book:type_name -> testdata.nested.Person.AddressBookEntry
-	2, // 4: testdata.nested.Person.contact:type_name -> testdata.nested.Person.Contact
-	5, // 5: testdata.nested.Person.Contact.locations:type_name -> testdata.nested.Person.Contact.LocationsEntry
-	0, // 6: testdata.nested.Person.AddressBookEntry.value:type_name -> testdata.nested.Address
-	0, // 7: testdata.nested.Person.Contact.LocationsEntry.value:type_name -> testdata.nested.Address
+var file_nested_nested_proto_depIdxs = []int32{
+	0, // 0: nested.Person.home:type_name -> nested.Address
+	0, // 1: nested.Person.prev_addresses:type_name -> nested.Address
+	3, // 2: nested.Person.attributes:type_name -> nested.Person.AttributesEntry
+	4, // 3: nested.Person.address_book:type_name -> nested.Person.AddressBookEntry
+	2, // 4: nested.Person.contact:type_name -> nested.Person.Contact
+	5, // 5: nested.Person.Contact.locations:type_name -> nested.Person.Contact.LocationsEntry
+	0, // 6: nested.Person.AddressBookEntry.value:type_name -> nested.Address
+	0, // 7: nested.Person.Contact.LocationsEntry.value:type_name -> nested.Address
 	8, // [8:8] is the sub-list for method output_type
 	8, // [8:8] is the sub-list for method input_type
 	8, // [8:8] is the sub-list for extension type_name
@@ -331,26 +332,26 @@ var file_testdata_nested_nested_proto_depIdxs = []int32{
 	0, // [0:8] is the sub-list for field type_name
 }
 
-func init() { file_testdata_nested_nested_proto_init() }
-func file_testdata_nested_nested_proto_init() {
-	if File_testdata_nested_nested_proto != nil {
+func init() { file_nested_nested_proto_init() }
+func file_nested_nested_proto_init() {
+	if File_nested_nested_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_testdata_nested_nested_proto_rawDesc), len(file_testdata_nested_nested_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nested_nested_proto_rawDesc), len(file_nested_nested_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_testdata_nested_nested_proto_goTypes,
-		DependencyIndexes: file_testdata_nested_nested_proto_depIdxs,
-		MessageInfos:      file_testdata_nested_nested_proto_msgTypes,
+		GoTypes:           file_nested_nested_proto_goTypes,
+		DependencyIndexes: file_nested_nested_proto_depIdxs,
+		MessageInfos:      file_nested_nested_proto_msgTypes,
 	}.Build()
-	File_testdata_nested_nested_proto = out.File
-	file_testdata_nested_nested_proto_goTypes = nil
-	file_testdata_nested_nested_proto_depIdxs = nil
+	File_nested_nested_proto = out.File
+	file_nested_nested_proto_goTypes = nil
+	file_nested_nested_proto_depIdxs = nil
 }

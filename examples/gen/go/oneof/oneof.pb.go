@@ -6,12 +6,12 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: testdata/oneof/oneof.proto
+// source: oneof/oneof.proto
 
 package oneof
 
 import (
-	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
+	nested "github.com/Kybxd/goconst/examples/gen/go/nested"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -30,7 +30,7 @@ const (
 // Address (imported from the nested package). The generated Event_Const
 // interface must:
 //   - expose Get{Note,Count}() returning scalars
-//   - expose GetLocation() returning testdata.nested.Address_Const
+//   - expose GetLocation() returning nested.Address_Const
 //   - leave Event's oneof case accessor alone (generator currently emits
 //     only field-level getters, which is what we want to verify).
 type Event struct {
@@ -48,7 +48,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_testdata_oneof_oneof_proto_msgTypes[0]
+	mi := &file_oneof_oneof_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -60,7 +60,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_oneof_oneof_proto_msgTypes[0]
+	mi := &file_oneof_oneof_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -73,7 +73,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_testdata_oneof_oneof_proto_rawDescGZIP(), []int{0}
+	return file_oneof_oneof_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Event) GetId() string {
@@ -139,40 +139,40 @@ func (*Event_Count) isEvent_Payload() {}
 
 func (*Event_Location) isEvent_Payload() {}
 
-var File_testdata_oneof_oneof_proto protoreflect.FileDescriptor
+var File_oneof_oneof_proto protoreflect.FileDescriptor
 
-const file_testdata_oneof_oneof_proto_rawDesc = "" +
+const file_oneof_oneof_proto_rawDesc = "" +
 	"\n" +
-	"\x1atestdata/oneof/oneof.proto\x12\x0etestdata.oneof\x1a\x1ctestdata/nested/nested.proto\"\x88\x01\n" +
+	"\x11oneof/oneof.proto\x12\x05oneof\x1a\x13nested/nested.proto\"\x7f\n" +
 	"\x05Event\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x04note\x18\n" +
 	" \x01(\tH\x00R\x04note\x12\x16\n" +
-	"\x05count\x18\v \x01(\x05H\x00R\x05count\x126\n" +
-	"\blocation\x18\f \x01(\v2\x18.testdata.nested.AddressH\x00R\blocationB\t\n" +
-	"\apayloadB\xb2\x01\n" +
-	"\x12com.testdata.oneofB\n" +
-	"OneofProtoP\x01Z7github.com/Kybxd/goconst/examples/gen/go/testdata/oneof\xa2\x02\x03TOX\xaa\x02\x0eTestdata.Oneof\xca\x02\x0eTestdata\\Oneof\xe2\x02\x1aTestdata\\Oneof\\GPBMetadata\xea\x02\x0fTestdata::Oneofb\x06proto3"
+	"\x05count\x18\v \x01(\x05H\x00R\x05count\x12-\n" +
+	"\blocation\x18\f \x01(\v2\x0f.nested.AddressH\x00R\blocationB\t\n" +
+	"\apayloadB{\n" +
+	"\tcom.oneofB\n" +
+	"OneofProtoP\x01Z.github.com/Kybxd/goconst/examples/gen/go/oneof\xa2\x02\x03OXX\xaa\x02\x05Oneof\xca\x02\x05Oneof\xe2\x02\x11Oneof\\GPBMetadata\xea\x02\x05Oneofb\x06proto3"
 
 var (
-	file_testdata_oneof_oneof_proto_rawDescOnce sync.Once
-	file_testdata_oneof_oneof_proto_rawDescData []byte
+	file_oneof_oneof_proto_rawDescOnce sync.Once
+	file_oneof_oneof_proto_rawDescData []byte
 )
 
-func file_testdata_oneof_oneof_proto_rawDescGZIP() []byte {
-	file_testdata_oneof_oneof_proto_rawDescOnce.Do(func() {
-		file_testdata_oneof_oneof_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_testdata_oneof_oneof_proto_rawDesc), len(file_testdata_oneof_oneof_proto_rawDesc)))
+func file_oneof_oneof_proto_rawDescGZIP() []byte {
+	file_oneof_oneof_proto_rawDescOnce.Do(func() {
+		file_oneof_oneof_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_oneof_oneof_proto_rawDesc), len(file_oneof_oneof_proto_rawDesc)))
 	})
-	return file_testdata_oneof_oneof_proto_rawDescData
+	return file_oneof_oneof_proto_rawDescData
 }
 
-var file_testdata_oneof_oneof_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_testdata_oneof_oneof_proto_goTypes = []any{
-	(*Event)(nil),          // 0: testdata.oneof.Event
-	(*nested.Address)(nil), // 1: testdata.nested.Address
+var file_oneof_oneof_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_oneof_oneof_proto_goTypes = []any{
+	(*Event)(nil),          // 0: oneof.Event
+	(*nested.Address)(nil), // 1: nested.Address
 }
-var file_testdata_oneof_oneof_proto_depIdxs = []int32{
-	1, // 0: testdata.oneof.Event.location:type_name -> testdata.nested.Address
+var file_oneof_oneof_proto_depIdxs = []int32{
+	1, // 0: oneof.Event.location:type_name -> nested.Address
 	1, // [1:1] is the sub-list for method output_type
 	1, // [1:1] is the sub-list for method input_type
 	1, // [1:1] is the sub-list for extension type_name
@@ -180,12 +180,12 @@ var file_testdata_oneof_oneof_proto_depIdxs = []int32{
 	0, // [0:1] is the sub-list for field type_name
 }
 
-func init() { file_testdata_oneof_oneof_proto_init() }
-func file_testdata_oneof_oneof_proto_init() {
-	if File_testdata_oneof_oneof_proto != nil {
+func init() { file_oneof_oneof_proto_init() }
+func file_oneof_oneof_proto_init() {
+	if File_oneof_oneof_proto != nil {
 		return
 	}
-	file_testdata_oneof_oneof_proto_msgTypes[0].OneofWrappers = []any{
+	file_oneof_oneof_proto_msgTypes[0].OneofWrappers = []any{
 		(*Event_Note)(nil),
 		(*Event_Count)(nil),
 		(*Event_Location)(nil),
@@ -194,17 +194,17 @@ func file_testdata_oneof_oneof_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_testdata_oneof_oneof_proto_rawDesc), len(file_testdata_oneof_oneof_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_oneof_oneof_proto_rawDesc), len(file_oneof_oneof_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_testdata_oneof_oneof_proto_goTypes,
-		DependencyIndexes: file_testdata_oneof_oneof_proto_depIdxs,
-		MessageInfos:      file_testdata_oneof_oneof_proto_msgTypes,
+		GoTypes:           file_oneof_oneof_proto_goTypes,
+		DependencyIndexes: file_oneof_oneof_proto_depIdxs,
+		MessageInfos:      file_oneof_oneof_proto_msgTypes,
 	}.Build()
-	File_testdata_oneof_oneof_proto = out.File
-	file_testdata_oneof_oneof_proto_goTypes = nil
-	file_testdata_oneof_oneof_proto_depIdxs = nil
+	File_oneof_oneof_proto = out.File
+	file_oneof_oneof_proto_goTypes = nil
+	file_oneof_oneof_proto_depIdxs = nil
 }

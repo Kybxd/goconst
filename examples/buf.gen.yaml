@@ -19,7 +19,7 @@ plugins:
       # references to it will keep the concrete *Type in the enclosing Const
       # interfaces. Enabled by default below; comment the next line out to
       # see how generation looks without the flag.
-      - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/testdata/external
+      - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
       # Well-known types ship without any *_Const / AsConst of their own, so
       # they must be excluded explicitly — otherwise generated code would
       # call .AsConst() on e.g. *timestamppb.Timestamp and fail to build.

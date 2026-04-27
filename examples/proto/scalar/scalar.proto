@@ -3,7 +3,7 @@
 // whose return types exactly mirror the concrete message.
 syntax = "proto3";
 
-package testdata.scalar;
+package scalar;
 
 // Color is a simple enum used to verify enum field handling.
 enum Color {

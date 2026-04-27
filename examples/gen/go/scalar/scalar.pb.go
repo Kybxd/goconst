@@ -6,7 +6,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: testdata/scalar/scalar.proto
+// source: scalar/scalar.proto
 
 package scalar
 
@@ -62,11 +62,11 @@ func (x Color) String() string {
 }
 
 func (Color) Descriptor() protoreflect.EnumDescriptor {
-	return file_testdata_scalar_scalar_proto_enumTypes[0].Descriptor()
+	return file_scalar_scalar_proto_enumTypes[0].Descriptor()
 }
 
 func (Color) Type() protoreflect.EnumType {
-	return &file_testdata_scalar_scalar_proto_enumTypes[0]
+	return &file_scalar_scalar_proto_enumTypes[0]
 }
 
 func (x Color) Number() protoreflect.EnumNumber {
@@ -75,7 +75,7 @@ func (x Color) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Color.Descriptor instead.
 func (Color) EnumDescriptor() ([]byte, []int) {
-	return file_testdata_scalar_scalar_proto_rawDescGZIP(), []int{0}
+	return file_scalar_scalar_proto_rawDescGZIP(), []int{0}
 }
 
 // AllScalars covers every scalar kind supported by protoreflect.
@@ -96,19 +96,19 @@ type AllScalars struct {
 	FDouble   float64                `protobuf:"fixed64,13,opt,name=f_double,json=fDouble,proto3" json:"f_double,omitempty"`
 	FString   string                 `protobuf:"bytes,14,opt,name=f_string,json=fString,proto3" json:"f_string,omitempty"`
 	FBytes    []byte                 `protobuf:"bytes,15,opt,name=f_bytes,json=fBytes,proto3" json:"f_bytes,omitempty"`
-	FEnum     Color                  `protobuf:"varint,16,opt,name=f_enum,json=fEnum,proto3,enum=testdata.scalar.Color" json:"f_enum,omitempty"`
+	FEnum     Color                  `protobuf:"varint,16,opt,name=f_enum,json=fEnum,proto3,enum=scalar.Color" json:"f_enum,omitempty"`
 	// proto3 explicit presence (optional) should still produce an unchanged
 	// Get* signature on the _Const interface.
 	FOptionalString *string `protobuf:"bytes,17,opt,name=f_optional_string,json=fOptionalString,proto3,oneof" json:"f_optional_string,omitempty"`
 	FOptionalInt32  *int32  `protobuf:"varint,18,opt,name=f_optional_int32,json=fOptionalInt32,proto3,oneof" json:"f_optional_int32,omitempty"`
-	FOptionalEnum   *Color  `protobuf:"varint,19,opt,name=f_optional_enum,json=fOptionalEnum,proto3,enum=testdata.scalar.Color,oneof" json:"f_optional_enum,omitempty"`
+	FOptionalEnum   *Color  `protobuf:"varint,19,opt,name=f_optional_enum,json=fOptionalEnum,proto3,enum=scalar.Color,oneof" json:"f_optional_enum,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
 
 func (x *AllScalars) Reset() {
 	*x = AllScalars{}
-	mi := &file_testdata_scalar_scalar_proto_msgTypes[0]
+	mi := &file_scalar_scalar_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -120,7 +120,7 @@ func (x *AllScalars) String() string {
 func (*AllScalars) ProtoMessage() {}
 
 func (x *AllScalars) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_scalar_scalar_proto_msgTypes[0]
+	mi := &file_scalar_scalar_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -133,7 +133,7 @@ func (x *AllScalars) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AllScalars.ProtoReflect.Descriptor instead.
 func (*AllScalars) Descriptor() ([]byte, []int) {
-	return file_testdata_scalar_scalar_proto_rawDescGZIP(), []int{0}
+	return file_scalar_scalar_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *AllScalars) GetFBool() bool {
@@ -269,11 +269,11 @@ func (x *AllScalars) GetFOptionalEnum() Color {
 	return Color_COLOR_UNSPECIFIED
 }
 
-var File_testdata_scalar_scalar_proto protoreflect.FileDescriptor
+var File_scalar_scalar_proto protoreflect.FileDescriptor
 
-const file_testdata_scalar_scalar_proto_rawDesc = "" +
+const file_scalar_scalar_proto_rawDesc = "" +
 	"\n" +
-	"\x1ctestdata/scalar/scalar.proto\x12\x0ftestdata.scalar\"\xb4\x05\n" +
+	"\x13scalar/scalar.proto\x12\x06scalar\"\xa2\x05\n" +
 	"\n" +
 	"AllScalars\x12\x15\n" +
 	"\x06f_bool\x18\x01 \x01(\bR\x05fBool\x12\x17\n" +
@@ -293,11 +293,11 @@ const file_testdata_scalar_scalar_proto_rawDesc = "" +
 	"\af_float\x18\f \x01(\x02R\x06fFloat\x12\x19\n" +
 	"\bf_double\x18\r \x01(\x01R\afDouble\x12\x19\n" +
 	"\bf_string\x18\x0e \x01(\tR\afString\x12\x17\n" +
-	"\af_bytes\x18\x0f \x01(\fR\x06fBytes\x12-\n" +
-	"\x06f_enum\x18\x10 \x01(\x0e2\x16.testdata.scalar.ColorR\x05fEnum\x12/\n" +
+	"\af_bytes\x18\x0f \x01(\fR\x06fBytes\x12$\n" +
+	"\x06f_enum\x18\x10 \x01(\x0e2\r.scalar.ColorR\x05fEnum\x12/\n" +
 	"\x11f_optional_string\x18\x11 \x01(\tH\x00R\x0ffOptionalString\x88\x01\x01\x12-\n" +
-	"\x10f_optional_int32\x18\x12 \x01(\x05H\x01R\x0efOptionalInt32\x88\x01\x01\x12C\n" +
-	"\x0ff_optional_enum\x18\x13 \x01(\x0e2\x16.testdata.scalar.ColorH\x02R\rfOptionalEnum\x88\x01\x01B\x14\n" +
+	"\x10f_optional_int32\x18\x12 \x01(\x05H\x01R\x0efOptionalInt32\x88\x01\x01\x12:\n" +
+	"\x0ff_optional_enum\x18\x13 \x01(\x0e2\r.scalar.ColorH\x02R\rfOptionalEnum\x88\x01\x01B\x14\n" +
 	"\x12_f_optional_stringB\x13\n" +
 	"\x11_f_optional_int32B\x12\n" +
 	"\x10_f_optional_enum*N\n" +
@@ -306,30 +306,31 @@ const file_testdata_scalar_scalar_proto_rawDesc = "" +
 	"\tCOLOR_RED\x10\x01\x12\x0f\n" +
 	"\vCOLOR_GREEN\x10\x02\x12\x0e\n" +
 	"\n" +
-	"COLOR_BLUE\x10\x03B\xb9\x01\n" +
-	"\x13com.testdata.scalarB\vScalarProtoP\x01Z8github.com/Kybxd/goconst/examples/gen/go/testdata/scalar\xa2\x02\x03TSX\xaa\x02\x0fTestdata.Scalar\xca\x02\x0fTestdata\\Scalar\xe2\x02\x1bTestdata\\Scalar\\GPBMetadata\xea\x02\x10Testdata::Scalarb\x06proto3"
+	"COLOR_BLUE\x10\x03B\x82\x01\n" +
+	"\n" +
+	"com.scalarB\vScalarProtoP\x01Z/github.com/Kybxd/goconst/examples/gen/go/scalar\xa2\x02\x03SXX\xaa\x02\x06Scalar\xca\x02\x06Scalar\xe2\x02\x12Scalar\\GPBMetadata\xea\x02\x06Scalarb\x06proto3"
 
 var (
-	file_testdata_scalar_scalar_proto_rawDescOnce sync.Once
-	file_testdata_scalar_scalar_proto_rawDescData []byte
+	file_scalar_scalar_proto_rawDescOnce sync.Once
+	file_scalar_scalar_proto_rawDescData []byte
 )
 
-func file_testdata_scalar_scalar_proto_rawDescGZIP() []byte {
-	file_testdata_scalar_scalar_proto_rawDescOnce.Do(func() {
-		file_testdata_scalar_scalar_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_testdata_scalar_scalar_proto_rawDesc), len(file_testdata_scalar_scalar_proto_rawDesc)))
+func file_scalar_scalar_proto_rawDescGZIP() []byte {
+	file_scalar_scalar_proto_rawDescOnce.Do(func() {
+		file_scalar_scalar_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_scalar_scalar_proto_rawDesc), len(file_scalar_scalar_proto_rawDesc)))
 	})
-	return file_testdata_scalar_scalar_proto_rawDescData
+	return file_scalar_scalar_proto_rawDescData
 }
 
-var file_testdata_scalar_scalar_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_testdata_scalar_scalar_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_testdata_scalar_scalar_proto_goTypes = []any{
-	(Color)(0),         // 0: testdata.scalar.Color
-	(*AllScalars)(nil), // 1: testdata.scalar.AllScalars
+var file_scalar_scalar_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_scalar_scalar_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_scalar_scalar_proto_goTypes = []any{
+	(Color)(0),         // 0: scalar.Color
+	(*AllScalars)(nil), // 1: scalar.AllScalars
 }
-var file_testdata_scalar_scalar_proto_depIdxs = []int32{
-	0, // 0: testdata.scalar.AllScalars.f_enum:type_name -> testdata.scalar.Color
-	0, // 1: testdata.scalar.AllScalars.f_optional_enum:type_name -> testdata.scalar.Color
+var file_scalar_scalar_proto_depIdxs = []int32{
+	0, // 0: scalar.AllScalars.f_enum:type_name -> scalar.Color
+	0, // 1: scalar.AllScalars.f_optional_enum:type_name -> scalar.Color
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -337,28 +338,28 @@ var file_testdata_scalar_scalar_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_testdata_scalar_scalar_proto_init() }
-func file_testdata_scalar_scalar_proto_init() {
-	if File_testdata_scalar_scalar_proto != nil {
+func init() { file_scalar_scalar_proto_init() }
+func file_scalar_scalar_proto_init() {
+	if File_scalar_scalar_proto != nil {
 		return
 	}
-	file_testdata_scalar_scalar_proto_msgTypes[0].OneofWrappers = []any{}
+	file_scalar_scalar_proto_msgTypes[0].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_testdata_scalar_scalar_proto_rawDesc), len(file_testdata_scalar_scalar_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_scalar_scalar_proto_rawDesc), len(file_scalar_scalar_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_testdata_scalar_scalar_proto_goTypes,
-		DependencyIndexes: file_testdata_scalar_scalar_proto_depIdxs,
-		EnumInfos:         file_testdata_scalar_scalar_proto_enumTypes,
-		MessageInfos:      file_testdata_scalar_scalar_proto_msgTypes,
+		GoTypes:           file_scalar_scalar_proto_goTypes,
+		DependencyIndexes: file_scalar_scalar_proto_depIdxs,
+		EnumInfos:         file_scalar_scalar_proto_enumTypes,
+		MessageInfos:      file_scalar_scalar_proto_msgTypes,
 	}.Build()
-	File_testdata_scalar_scalar_proto = out.File
-	file_testdata_scalar_scalar_proto_goTypes = nil
-	file_testdata_scalar_scalar_proto_depIdxs = nil
+	File_scalar_scalar_proto = out.File
+	file_scalar_scalar_proto_goTypes = nil
+	file_scalar_scalar_proto_depIdxs = nil
 }

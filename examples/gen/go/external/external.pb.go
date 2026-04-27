@@ -10,7 +10,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: testdata/external/external.proto
+// source: external/external.proto
 
 package external
 
@@ -39,7 +39,7 @@ type External struct {
 
 func (x *External) Reset() {
 	*x = External{}
-	mi := &file_testdata_external_external_proto_msgTypes[0]
+	mi := &file_external_external_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -51,7 +51,7 @@ func (x *External) String() string {
 func (*External) ProtoMessage() {}
 
 func (x *External) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_external_external_proto_msgTypes[0]
+	mi := &file_external_external_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -64,7 +64,7 @@ func (x *External) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use External.ProtoReflect.Descriptor instead.
 func (*External) Descriptor() ([]byte, []int) {
-	return file_testdata_external_external_proto_rawDescGZIP(), []int{0}
+	return file_external_external_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *External) GetToken() string {
@@ -81,33 +81,33 @@ func (x *External) GetTs() int64 {
 	return 0
 }
 
-var File_testdata_external_external_proto protoreflect.FileDescriptor
+var File_external_external_proto protoreflect.FileDescriptor
 
-const file_testdata_external_external_proto_rawDesc = "" +
+const file_external_external_proto_rawDesc = "" +
 	"\n" +
-	" testdata/external/external.proto\x12\x11testdata.external\"0\n" +
+	"\x17external/external.proto\x12\bexternal\"0\n" +
 	"\bExternal\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\x12\x0e\n" +
-	"\x02ts\x18\x02 \x01(\x03R\x02tsB\xc7\x01\n" +
-	"\x15com.testdata.externalB\rExternalProtoP\x01Z:github.com/Kybxd/goconst/examples/gen/go/testdata/external\xa2\x02\x03TEX\xaa\x02\x11Testdata.External\xca\x02\x11Testdata\\External\xe2\x02\x1dTestdata\\External\\GPBMetadata\xea\x02\x12Testdata::Externalb\x06proto3"
+	"\x02ts\x18\x02 \x01(\x03R\x02tsB\x90\x01\n" +
+	"\fcom.externalB\rExternalProtoP\x01Z1github.com/Kybxd/goconst/examples/gen/go/external\xa2\x02\x03EXX\xaa\x02\bExternal\xca\x02\bExternal\xe2\x02\x14External\\GPBMetadata\xea\x02\bExternalb\x06proto3"
 
 var (
-	file_testdata_external_external_proto_rawDescOnce sync.Once
-	file_testdata_external_external_proto_rawDescData []byte
+	file_external_external_proto_rawDescOnce sync.Once
+	file_external_external_proto_rawDescData []byte
 )
 
-func file_testdata_external_external_proto_rawDescGZIP() []byte {
-	file_testdata_external_external_proto_rawDescOnce.Do(func() {
-		file_testdata_external_external_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_testdata_external_external_proto_rawDesc), len(file_testdata_external_external_proto_rawDesc)))
+func file_external_external_proto_rawDescGZIP() []byte {
+	file_external_external_proto_rawDescOnce.Do(func() {
+		file_external_external_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_external_external_proto_rawDesc), len(file_external_external_proto_rawDesc)))
 	})
-	return file_testdata_external_external_proto_rawDescData
+	return file_external_external_proto_rawDescData
 }
 
-var file_testdata_external_external_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_testdata_external_external_proto_goTypes = []any{
-	(*External)(nil), // 0: testdata.external.External
+var file_external_external_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_external_external_proto_goTypes = []any{
+	(*External)(nil), // 0: external.External
 }
-var file_testdata_external_external_proto_depIdxs = []int32{
+var file_external_external_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -115,26 +115,26 @@ var file_testdata_external_external_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_testdata_external_external_proto_init() }
-func file_testdata_external_external_proto_init() {
-	if File_testdata_external_external_proto != nil {
+func init() { file_external_external_proto_init() }
+func file_external_external_proto_init() {
+	if File_external_external_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_testdata_external_external_proto_rawDesc), len(file_testdata_external_external_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_external_external_proto_rawDesc), len(file_external_external_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_testdata_external_external_proto_goTypes,
-		DependencyIndexes: file_testdata_external_external_proto_depIdxs,
-		MessageInfos:      file_testdata_external_external_proto_msgTypes,
+		GoTypes:           file_external_external_proto_goTypes,
+		DependencyIndexes: file_external_external_proto_depIdxs,
+		MessageInfos:      file_external_external_proto_msgTypes,
 	}.Build()
-	File_testdata_external_external_proto = out.File
-	file_testdata_external_external_proto_goTypes = nil
-	file_testdata_external_external_proto_depIdxs = nil
+	File_external_external_proto = out.File
+	file_external_external_proto_goTypes = nil
+	file_external_external_proto_depIdxs = nil
 }

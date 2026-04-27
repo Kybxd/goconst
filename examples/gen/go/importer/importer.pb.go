@@ -15,13 +15,13 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        (unknown)
-// source: testdata/importer/importer.proto
+// source: importer/importer.proto
 
 package importer
 
 import (
-	external "github.com/Kybxd/goconst/examples/gen/go/testdata/external"
-	nested "github.com/Kybxd/goconst/examples/gen/go/testdata/nested"
+	external "github.com/Kybxd/goconst/examples/gen/go/external"
+	nested "github.com/Kybxd/goconst/examples/gen/go/nested"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
@@ -55,7 +55,7 @@ type Envelope struct {
 
 func (x *Envelope) Reset() {
 	*x = Envelope{}
-	mi := &file_testdata_importer_importer_proto_msgTypes[0]
+	mi := &file_importer_importer_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67,7 +67,7 @@ func (x *Envelope) String() string {
 func (*Envelope) ProtoMessage() {}
 
 func (x *Envelope) ProtoReflect() protoreflect.Message {
-	mi := &file_testdata_importer_importer_proto_msgTypes[0]
+	mi := &file_importer_importer_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -80,7 +80,7 @@ func (x *Envelope) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Envelope.ProtoReflect.Descriptor instead.
 func (*Envelope) Descriptor() ([]byte, []int) {
-	return file_testdata_importer_importer_proto_rawDescGZIP(), []int{0}
+	return file_importer_importer_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Envelope) GetId() string {
@@ -139,61 +139,61 @@ func (x *Envelope) GetTsMap() map[string]*timestamppb.Timestamp {
 	return nil
 }
 
-var File_testdata_importer_importer_proto protoreflect.FileDescriptor
+var File_importer_importer_proto protoreflect.FileDescriptor
 
-const file_testdata_importer_importer_proto_rawDesc = "" +
+const file_importer_importer_proto_rawDesc = "" +
 	"\n" +
-	" testdata/importer/importer.proto\x12\x11testdata.importer\x1a\x1fgoogle/protobuf/timestamp.proto\x1a testdata/external/external.proto\x1a\x1ctestdata/nested/nested.proto\"\xcc\x04\n" +
+	"\x17importer/importer.proto\x12\bimporter\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17external/external.proto\x1a\x13nested/nested.proto\"\x96\x04\n" +
 	"\bEnvelope\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
-	"\x04addr\x18\x02 \x01(\v2\x18.testdata.nested.AddressR\x04addr\x12-\n" +
-	"\x03ext\x18\x03 \x01(\v2\x1b.testdata.external.ExternalR\x03ext\x123\n" +
-	"\x06extras\x18\x04 \x03(\v2\x1b.testdata.external.ExternalR\x06extras\x12@\n" +
-	"\aext_map\x18\x05 \x03(\v2'.testdata.importer.Envelope.ExtMapEntryR\x06extMap\x129\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12#\n" +
+	"\x04addr\x18\x02 \x01(\v2\x0f.nested.AddressR\x04addr\x12$\n" +
+	"\x03ext\x18\x03 \x01(\v2\x12.external.ExternalR\x03ext\x12*\n" +
+	"\x06extras\x18\x04 \x03(\v2\x12.external.ExternalR\x06extras\x127\n" +
+	"\aext_map\x18\x05 \x03(\v2\x1e.importer.Envelope.ExtMapEntryR\x06extMap\x129\n" +
 	"\n" +
 	"created_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x124\n" +
-	"\ahistory\x18\a \x03(\v2\x1a.google.protobuf.TimestampR\ahistory\x12=\n" +
-	"\x06ts_map\x18\b \x03(\v2&.testdata.importer.Envelope.TsMapEntryR\x05tsMap\x1aV\n" +
+	"\ahistory\x18\a \x03(\v2\x1a.google.protobuf.TimestampR\ahistory\x124\n" +
+	"\x06ts_map\x18\b \x03(\v2\x1d.importer.Envelope.TsMapEntryR\x05tsMap\x1aM\n" +
 	"\vExtMapEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x121\n" +
-	"\x05value\x18\x02 \x01(\v2\x1b.testdata.external.ExternalR\x05value:\x028\x01\x1aT\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12(\n" +
+	"\x05value\x18\x02 \x01(\v2\x12.external.ExternalR\x05value:\x028\x01\x1aT\n" +
 	"\n" +
 	"TsMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
-	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01B\xc7\x01\n" +
-	"\x15com.testdata.importerB\rImporterProtoP\x01Z:github.com/Kybxd/goconst/examples/gen/go/testdata/importer\xa2\x02\x03TIX\xaa\x02\x11Testdata.Importer\xca\x02\x11Testdata\\Importer\xe2\x02\x1dTestdata\\Importer\\GPBMetadata\xea\x02\x12Testdata::Importerb\x06proto3"
+	"\x05value\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05value:\x028\x01B\x90\x01\n" +
+	"\fcom.importerB\rImporterProtoP\x01Z1github.com/Kybxd/goconst/examples/gen/go/importer\xa2\x02\x03IXX\xaa\x02\bImporter\xca\x02\bImporter\xe2\x02\x14Importer\\GPBMetadata\xea\x02\bImporterb\x06proto3"
 
 var (
-	file_testdata_importer_importer_proto_rawDescOnce sync.Once
-	file_testdata_importer_importer_proto_rawDescData []byte
+	file_importer_importer_proto_rawDescOnce sync.Once
+	file_importer_importer_proto_rawDescData []byte
 )
 
-func file_testdata_importer_importer_proto_rawDescGZIP() []byte {
-	file_testdata_importer_importer_proto_rawDescOnce.Do(func() {
-		file_testdata_importer_importer_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_testdata_importer_importer_proto_rawDesc), len(file_testdata_importer_importer_proto_rawDesc)))
+func file_importer_importer_proto_rawDescGZIP() []byte {
+	file_importer_importer_proto_rawDescOnce.Do(func() {
+		file_importer_importer_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_importer_importer_proto_rawDesc), len(file_importer_importer_proto_rawDesc)))
 	})
-	return file_testdata_importer_importer_proto_rawDescData
+	return file_importer_importer_proto_rawDescData
 }
 
-var file_testdata_importer_importer_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_testdata_importer_importer_proto_goTypes = []any{
-	(*Envelope)(nil),              // 0: testdata.importer.Envelope
-	nil,                           // 1: testdata.importer.Envelope.ExtMapEntry
-	nil,                           // 2: testdata.importer.Envelope.TsMapEntry
-	(*nested.Address)(nil),        // 3: testdata.nested.Address
-	(*external.External)(nil),     // 4: testdata.external.External
+var file_importer_importer_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_importer_importer_proto_goTypes = []any{
+	(*Envelope)(nil),              // 0: importer.Envelope
+	nil,                           // 1: importer.Envelope.ExtMapEntry
+	nil,                           // 2: importer.Envelope.TsMapEntry
+	(*nested.Address)(nil),        // 3: nested.Address
+	(*external.External)(nil),     // 4: external.External
 	(*timestamppb.Timestamp)(nil), // 5: google.protobuf.Timestamp
 }
-var file_testdata_importer_importer_proto_depIdxs = []int32{
-	3, // 0: testdata.importer.Envelope.addr:type_name -> testdata.nested.Address
-	4, // 1: testdata.importer.Envelope.ext:type_name -> testdata.external.External
-	4, // 2: testdata.importer.Envelope.extras:type_name -> testdata.external.External
-	1, // 3: testdata.importer.Envelope.ext_map:type_name -> testdata.importer.Envelope.ExtMapEntry
-	5, // 4: testdata.importer.Envelope.created_at:type_name -> google.protobuf.Timestamp
-	5, // 5: testdata.importer.Envelope.history:type_name -> google.protobuf.Timestamp
-	2, // 6: testdata.importer.Envelope.ts_map:type_name -> testdata.importer.Envelope.TsMapEntry
-	4, // 7: testdata.importer.Envelope.ExtMapEntry.value:type_name -> testdata.external.External
-	5, // 8: testdata.importer.Envelope.TsMapEntry.value:type_name -> google.protobuf.Timestamp
+var file_importer_importer_proto_depIdxs = []int32{
+	3, // 0: importer.Envelope.addr:type_name -> nested.Address
+	4, // 1: importer.Envelope.ext:type_name -> external.External
+	4, // 2: importer.Envelope.extras:type_name -> external.External
+	1, // 3: importer.Envelope.ext_map:type_name -> importer.Envelope.ExtMapEntry
+	5, // 4: importer.Envelope.created_at:type_name -> google.protobuf.Timestamp
+	5, // 5: importer.Envelope.history:type_name -> google.protobuf.Timestamp
+	2, // 6: importer.Envelope.ts_map:type_name -> importer.Envelope.TsMapEntry
+	4, // 7: importer.Envelope.ExtMapEntry.value:type_name -> external.External
+	5, // 8: importer.Envelope.TsMapEntry.value:type_name -> google.protobuf.Timestamp
 	9, // [9:9] is the sub-list for method output_type
 	9, // [9:9] is the sub-list for method input_type
 	9, // [9:9] is the sub-list for extension type_name
@@ -201,26 +201,26 @@ var file_testdata_importer_importer_proto_depIdxs = []int32{
 	0, // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_testdata_importer_importer_proto_init() }
-func file_testdata_importer_importer_proto_init() {
-	if File_testdata_importer_importer_proto != nil {
+func init() { file_importer_importer_proto_init() }
+func file_importer_importer_proto_init() {
+	if File_importer_importer_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_testdata_importer_importer_proto_rawDesc), len(file_testdata_importer_importer_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_importer_importer_proto_rawDesc), len(file_importer_importer_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_testdata_importer_importer_proto_goTypes,
-		DependencyIndexes: file_testdata_importer_importer_proto_depIdxs,
-		MessageInfos:      file_testdata_importer_importer_proto_msgTypes,
+		GoTypes:           file_importer_importer_proto_goTypes,
+		DependencyIndexes: file_importer_importer_proto_depIdxs,
+		MessageInfos:      file_importer_importer_proto_msgTypes,
 	}.Build()
-	File_testdata_importer_importer_proto = out.File
-	file_testdata_importer_importer_proto_goTypes = nil
-	file_testdata_importer_importer_proto_depIdxs = nil
+	File_importer_importer_proto = out.File
+	file_importer_importer_proto_goTypes = nil
+	file_importer_importer_proto_depIdxs = nil
 }

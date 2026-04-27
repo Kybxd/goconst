@@ -3,15 +3,15 @@
 // QualifiedGoIdent / import emission).
 syntax = "proto3";
 
-package testdata.oneof;
+package oneof;
 
-import "testdata/nested/nested.proto";
+import "nested/nested.proto";
 
 // Event has an exactly-one payload: either a scalar string, an int or an
 // Address (imported from the nested package). The generated Event_Const
 // interface must:
 //   - expose Get{Note,Count}() returning scalars
-//   - expose GetLocation() returning testdata.nested.Address_Const
+//   - expose GetLocation() returning nested.Address_Const
 //   - leave Event's oneof case accessor alone (generator currently emits
 //     only field-level getters, which is what we want to verify).
 message Event {
@@ -20,6 +20,6 @@ message Event {
   oneof payload {
     string note = 10;
     int32 count = 11;
-    testdata.nested.Address location = 12;
+    nested.Address location = 12;
   }
 }
