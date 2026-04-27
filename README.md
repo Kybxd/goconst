@@ -80,10 +80,10 @@ func (x *_Envelope_Const) GetAddr() Address_Const {
 	return x.Envelope.GetAddr().AsConst()
 }
 func (x *_Envelope_Const) GetHistory() goconst.Slice[Address_Const] {
-	return goconst.NewSlice2[Address_Const](x.Envelope.GetHistory())
+	return goconst.NewSlice2(x.Envelope.GetHistory())
 }
 func (x *_Envelope_Const) GetByTag() goconst.Map[string, Address_Const] {
-	return goconst.NewMap2[string, Address_Const](x.Envelope.GetByTag())
+	return goconst.NewMap2(x.Envelope.GetByTag())
 }
 ```
 
@@ -132,11 +132,14 @@ Key design points:
   and an override calls `x.Envelope.GetAddr().AsConst()`.
 * **Repeated fields** switch from `[]T` to `goconst.Slice[T_Const]` (or
   `goconst.Slice[T]` for scalar element types). The override delegates
-  to `goconst.NewSlice2[T_Const](...)` for message elements and to
+  to `goconst.NewSlice2(...)` for message elements and to
   `goconst.NewSlice(...)` for scalar / excluded-package elements.
+  Type arguments are omitted on purpose — Go 1.21+ constraint type
+  inference recovers both the element type and the projected `_Const`
+  type automatically.
 * **Map fields** switch from `map[K]V` to `goconst.Map[K, V_Const]`
   (or `goconst.Map[K, V]` for scalar values), likewise delegating to
-  `goconst.NewMap2[K, V_Const](...)` or `goconst.NewMap(...)`.
+  `goconst.NewMap2(...)` or `goconst.NewMap(...)`.
 * **`oneof`** is supported; each arm's getter is declared on the
   interface with the appropriate element type (concrete for scalars,
   `_Const` for messages).

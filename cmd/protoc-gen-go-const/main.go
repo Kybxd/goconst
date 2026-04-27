@@ -292,10 +292,12 @@ func (x *Generator) genOverrideGetter(message *protogen.Message, field *protogen
 
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			// NewSlice2 needs the projected type T as an explicit type
-			// argument because it only appears in the Constable[T]
-			// constraint, not in the function's value parameter list.
-			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice2")), "[", elemConstType, "](x.", msgName, ".Get", field.GoName, "())")
+			// Type arguments are omitted on purpose: Go 1.21+ constraint
+			// type inference can recover both E (from the slice element
+			// type) and T (from the Constable[T] constraint on E), so
+			// spelling them out triggers the "unnecessary type arguments"
+			// diagnostic (gopls / revive).
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice2")), "(x.", msgName, ".Get", field.GoName, "())")
 		} else {
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice")), "(x.", msgName, ".Get", field.GoName, "())")
 		}
@@ -312,9 +314,10 @@ func (x *Generator) genOverrideGetter(message *protogen.Message, field *protogen
 
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			// NewMap2 needs [K, V] as explicit type arguments for the
-			// same reason as NewSlice2 above.
-			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")), "[", keyType, ", ", valConstType, "](x.", msgName, ".Get", field.GoName, "())")
+			// Type arguments are omitted for the same reason as NewSlice2
+			// above: K / V / E are all recoverable from the argument's
+			// map[K]E type plus E's Constable[V] method set.
+			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")), "(x.", msgName, ".Get", field.GoName, "())")
 		} else {
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap")), "(x.", msgName, ".Get", field.GoName, "())")
 		}

@@ -65,7 +65,7 @@ func (x *_Person_Const) GetTags() goconst.Slice[string] {
 }
 
 func (x *_Person_Const) GetPrevAddresses() goconst.Slice[Address_Const] {
-	return goconst.NewSlice2[Address_Const](x.Person.GetPrevAddresses())
+	return goconst.NewSlice2(x.Person.GetPrevAddresses())
 }
 
 func (x *_Person_Const) GetAttributes() goconst.Map[string, string] {
@@ -73,7 +73,7 @@ func (x *_Person_Const) GetAttributes() goconst.Map[string, string] {
 }
 
 func (x *_Person_Const) GetAddressBook() goconst.Map[int64, Address_Const] {
-	return goconst.NewMap2[int64, Address_Const](x.Person.GetAddressBook())
+	return goconst.NewMap2(x.Person.GetAddressBook())
 }
 
 func (x *_Person_Const) GetContact() Person_Contact_Const {
@@ -105,5 +105,5 @@ func (x *_Person_Contact_Const) GetPhones() goconst.Slice[string] {
 }
 
 func (x *_Person_Contact_Const) GetLocations() goconst.Map[string, Address_Const] {
-	return goconst.NewMap2[string, Address_Const](x.Person_Contact.GetLocations())
+	return goconst.NewMap2(x.Person_Contact.GetLocations())
 }
