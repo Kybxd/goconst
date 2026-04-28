@@ -7,10 +7,18 @@ every `message` in your `.proto` files, alongside the standard
 
 For each message `Foo`, it emits:
 
-* `Foo_Const` — a Go interface with only the `Get*` accessors of `Foo`, so a
+* `Foo_Const` — a Go interface with a read-only view of `Foo`. Scalar /
+  enum / `bytes` fields keep their plain `GetName()` getter; message /
+  `repeated` / `map` fields whose signatures differ from the concrete
+  `*Foo` are exposed through companion `ConstName()` methods. A
   function that takes `Foo_Const` physically cannot mutate the message.
-* `func (x *Foo) AsConst() Foo_Const` — a zero-cost adapter (an embedded
-  wrapper struct) to obtain that view from a concrete `*Foo`.
+* `func (x *Foo) AsConst() Foo_Const { return x }` — a zero-allocation
+  cast. `*Foo` itself implements `Foo_Const`, so there is no wrapper
+  struct, no per-call allocation, and no indirection on scalar getters.
+* `func (x *Foo) Get<Msg|Repeated|Map>Const() ...` — one companion
+  method per field whose signature had to change (singular message →
+  `T_Const`, `[]T` → `goconst.Slice[T]`, `map[K]V` → `goconst.Map[K,V]`),
+  attached directly to `*Foo` in the generated `foo.const.pb.go`.
 
 Repeated and map fields are returned through
 [`goconst.Slice`](goconst.go) / [`goconst.Map`](goconst.go) — small
@@ -36,7 +44,7 @@ func Render(user userpb.User_Const) string { // read-only at the type level
     // user.Name = "x"    // ✗ interface has no such field
 }
 
-Render(u.AsConst()) // call site opts in, no copy
+Render(u.AsConst()) // call site opts in — no copy, no allocation
 ```
 
 ## How it works
@@ -57,33 +65,42 @@ the plugin generates (roughly):
 ```go
 import "github.com/Kybxd/goconst"
 
-// Envelope_Const is a read-only interface of Envelope.
+// Envelope_Const is a read-only interface view of Envelope.
+//
+// *Envelope itself satisfies this interface: scalar getters are inherited
+// from the concrete type, and the message / repeated / map getters whose
+// signatures differ are exposed via Const<Name> methods below.
 type Envelope_Const interface {
 	proto.Message
 
-	GetId() string
-	GetAddr() Address_Const
-	GetHistory() goconst.Slice[Address_Const]
-	GetByTag() goconst.Map[string, Address_Const]
+	GetId() string                                 // scalar: concrete getter reused
+	ConstAddr() Address_Const                   // singular message
+	ConstHistory() goconst.Slice[Address_Const] // repeated
+	ConstByTag() goconst.Map[string, Address_Const] // map
 }
 
-type _Envelope_Const struct{ *Envelope } // embeds concrete type
+// Compile-time assertion: dropping a field on the proto side turns into a
+// build error instead of an interface-not-implemented runtime surprise.
+var _ Envelope_Const = (*Envelope)(nil)
 
-var _ Envelope_Const = (*_Envelope_Const)(nil)
+// AsConst is a zero-allocation cast: *Envelope already implements
+// Envelope_Const, so the receiver is returned unchanged. The method is
+// kept for readability and to give *Envelope a Constable[Envelope_Const]
+// witness that parent messages can feed into goconst.NewSlice2 / NewMap2.
+func (x *Envelope) AsConst() Envelope_Const { return x }
 
-func (x *Envelope) AsConst() Envelope_Const { return &_Envelope_Const{x} }
-
-// Only getters whose signature differs from the embedded *Envelope's
-// getters are overridden — all of them delegate straight to runtime
-// constructors in the goconst package.
-func (x *_Envelope_Const) GetAddr() Address_Const {
-	return x.Envelope.GetAddr().AsConst()
+// Const<Name> companions are attached directly to *Envelope. They
+// delegate to runtime constructors in the goconst package; type
+// arguments are omitted so that Go 1.21+ constraint type inference
+// recovers both the element type and its _Const projection.
+func (x *Envelope) ConstAddr() Address_Const {
+	return x.GetAddr().AsConst()
 }
-func (x *_Envelope_Const) GetHistory() goconst.Slice[Address_Const] {
-	return goconst.NewSlice2(x.Envelope.GetHistory())
+func (x *Envelope) ConstHistory() goconst.Slice[Address_Const] {
+	return goconst.NewSlice2(x.GetHistory())
 }
-func (x *_Envelope_Const) GetByTag() goconst.Map[string, Address_Const] {
-	return goconst.NewMap2(x.Envelope.GetByTag())
+func (x *Envelope) ConstByTag() goconst.Map[string, Address_Const] {
+	return goconst.NewMap2(x.GetByTag())
 }
 ```
 
@@ -121,30 +138,40 @@ func NewSlice2[T any, E Constable[T]](s []E) Slice[T]
 func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V]
 ```
 
-so the plugin only has to emit a **one-line override getter** per
-repeated / map field — no per-field wrapper struct is generated.
+so the plugin only has to emit a **one-line companion getter** per
+message / repeated / map field — *Message itself satisfies its _Const
+interface, so no wrapper type is generated.
 
 Key design points:
 
 * **Scalars / enums / `bytes`** keep the stdlib Go type and reuse the
-  embedded `*Envelope`'s getter — no override is emitted.
-* **Singular message fields** are lifted to the callee's `*_Const` view,
-  and an override calls `x.Envelope.GetAddr().AsConst()`.
+  concrete `*Message`'s getter — no companion is emitted and the
+  interface lists the plain `GetName()` name.
+* **Singular message fields** switch to the callee's `T_Const` view. A
+  `ConstAddr()` companion on `*Message` calls
+  `x.GetAddr().AsConst()`; because `AsConst()` is itself a return-x
+  cast, the whole chain compiles to a single pointer load.
 * **Repeated fields** switch from `[]T` to `goconst.Slice[T_Const]` (or
-  `goconst.Slice[T]` for scalar element types). The override delegates
-  to `goconst.NewSlice2(...)` for message elements and to
-  `goconst.NewSlice(...)` for scalar / excluded-package elements.
-  Type arguments are omitted on purpose — Go 1.21+ constraint type
-  inference recovers both the element type and the projected `_Const`
-  type automatically.
+  `goconst.Slice[T]` for scalar element types). The companion
+  `ConstHistory()` delegates to `goconst.NewSlice2(...)` for message
+  elements and to `goconst.NewSlice(...)` for scalar / excluded-package
+  elements. Type arguments are omitted on purpose — Go 1.21+ constraint
+  type inference recovers both the element type and the projected
+  `_Const` type automatically.
 * **Map fields** switch from `map[K]V` to `goconst.Map[K, V_Const]`
   (or `goconst.Map[K, V]` for scalar values), likewise delegating to
   `goconst.NewMap2(...)` or `goconst.NewMap(...)`.
 * **`oneof`** is supported; each arm's getter is declared on the
-  interface with the appropriate element type (concrete for scalars,
-  `_Const` for messages).
+  interface with the appropriate element type — scalar arms keep their
+  plain `GetNote()` name, message arms get a `ConstLocation()`
+  companion that returns the callee's `_Const` view.
 * **Cross-package references** use `QualifiedGoIdent`, so imports for
   `*_Const` types from other generated packages are added automatically.
+* **Zero-allocation cast**: because `*Message` itself implements
+  `Message_Const`, `AsConst()` is literally `return x`. Benchmarks
+  measure ~0.65 ns / 0 allocs for the cast, 0 allocs for singular
+  message-field access, and ~3.5× faster map look-ups versus a wrapper-
+  struct design that allocates a new view on every call.
 
 ## Installation & wiring
 
@@ -205,7 +232,8 @@ files side by side:
 Comma/repeat-style flag listing Go import paths that should **not** get
 `*_Const` views. When a field references a message from an excluded
 package, the plugin keeps the concrete `*Type` in the enclosing `_Const`
-interface (and skips the `.AsConst()` call in any emitted override):
+interface (and skips the `.AsConst()` hop on any emitted `Const<Name>`
+companion getter):
 
 ```yaml
 opt:

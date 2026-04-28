@@ -17,7 +17,9 @@
 // types from excluded packages) and [NewSlice2] / [NewMap2] (used for
 // message element types whose concrete value implements [Constable], i.e.
 // exposes an AsConst() view). The generator only emits thin getters that
-// delegate to these constructors; no per-field wrapper struct is generated.
+// delegate to these constructors; each constructor is a zero-copy type
+// conversion into a named slice / map type that directly carries the
+// read-only method set — no struct wrapper is allocated per call.
 package goconst
 
 import "iter"
@@ -71,7 +73,7 @@ type Constable[T any] interface {
 // message element types whose [Constable] projection is not desired
 // (e.g. messages from excluded packages).
 func NewSlice[T any](s []T) Slice[T] {
-	return sliceImpl[T]{s: s}
+	return _Slice[T](s)
 }
 
 // NewSlice2 returns a read-only [Slice] view over s whose elements are
@@ -79,32 +81,37 @@ func NewSlice[T any](s []T) Slice[T] {
 // generator for repeated message fields whose element type has a _Const
 // interface view.
 func NewSlice2[T any, E Constable[T]](s []E) Slice[T] {
-	return sliceAsConstImpl[T, E]{s: s}
+	return _Slice2[T, E](s)
 }
 
 // NewMap returns a read-only [Map] view over m. Values are returned as-is
 // from Get / All, so it is suitable for scalar value types and for message
 // value types whose [Constable] projection is not desired.
 func NewMap[K comparable, V any](m map[K]V) Map[K, V] {
-	return mapImpl[K, V]{m: m}
+	return _Map[K, V](m)
 }
 
 // NewMap2 returns a read-only [Map] view over m whose values are projected
 // through the [Constable] AsConst method. It is used by the generator for
 // map fields whose value type has a _Const interface view.
 func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V] {
-	return mapAsConstImpl[K, V, E]{m: m}
+	return _Map2[K, V, E](m)
 }
 
 // --- internal implementations -----------------------------------------------
+//
+// Each impl is a named type whose underlying type is the raw slice or map,
+// not a struct wrapper around it. This makes the constructors above pure
+// type conversions (no extra allocation, no extra pointer indirection on
+// method dispatch) while still attaching the read-only method set.
 
-type sliceImpl[T any] struct{ s []T }
+type _Slice[T any] []T
 
-func (c sliceImpl[T]) Len() int   { return len(c.s) }
-func (c sliceImpl[T]) At(i int) T { return c.s[i] }
-func (c sliceImpl[T]) All() iter.Seq2[int, T] {
+func (c _Slice[T]) Len() int   { return len(c) }
+func (c _Slice[T]) At(i int) T { return c[i] }
+func (c _Slice[T]) All() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		for i, v := range c.s {
+		for i, v := range c {
 			if !yield(i, v) {
 				return
 			}
@@ -112,13 +119,13 @@ func (c sliceImpl[T]) All() iter.Seq2[int, T] {
 	}
 }
 
-type sliceAsConstImpl[T any, E Constable[T]] struct{ s []E }
+type _Slice2[T any, E Constable[T]] []E
 
-func (c sliceAsConstImpl[T, E]) Len() int   { return len(c.s) }
-func (c sliceAsConstImpl[T, E]) At(i int) T { return c.s[i].AsConst() }
-func (c sliceAsConstImpl[T, E]) All() iter.Seq2[int, T] {
+func (c _Slice2[T, E]) Len() int   { return len(c) }
+func (c _Slice2[T, E]) At(i int) T { return c[i].AsConst() }
+func (c _Slice2[T, E]) All() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
-		for i, v := range c.s {
+		for i, v := range c {
 			if !yield(i, v.AsConst()) {
 				return
 			}
@@ -126,20 +133,20 @@ func (c sliceAsConstImpl[T, E]) All() iter.Seq2[int, T] {
 	}
 }
 
-type mapImpl[K comparable, V any] struct{ m map[K]V }
+type _Map[K comparable, V any] map[K]V
 
-func (c mapImpl[K, V]) Len() int { return len(c.m) }
-func (c mapImpl[K, V]) Get(k K) (V, bool) {
-	v, ok := c.m[k]
+func (c _Map[K, V]) Len() int { return len(c) }
+func (c _Map[K, V]) Get(k K) (V, bool) {
+	v, ok := c[k]
 	return v, ok
 }
-func (c mapImpl[K, V]) Has(k K) bool {
-	_, ok := c.m[k]
+func (c _Map[K, V]) Has(k K) bool {
+	_, ok := c[k]
 	return ok
 }
-func (c mapImpl[K, V]) All() iter.Seq2[K, V] {
+func (c _Map[K, V]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		for k, v := range c.m {
+		for k, v := range c {
 			if !yield(k, v) {
 				return
 			}
@@ -147,24 +154,24 @@ func (c mapImpl[K, V]) All() iter.Seq2[K, V] {
 	}
 }
 
-type mapAsConstImpl[K comparable, V any, E Constable[V]] struct{ m map[K]E }
+type _Map2[K comparable, V any, E Constable[V]] map[K]E
 
-func (c mapAsConstImpl[K, V, E]) Len() int { return len(c.m) }
-func (c mapAsConstImpl[K, V, E]) Get(k K) (V, bool) {
-	v, ok := c.m[k]
+func (c _Map2[K, V, E]) Len() int { return len(c) }
+func (c _Map2[K, V, E]) Get(k K) (V, bool) {
+	v, ok := c[k]
 	if !ok {
 		var zero V
 		return zero, false
 	}
 	return v.AsConst(), true
 }
-func (c mapAsConstImpl[K, V, E]) Has(k K) bool {
-	_, ok := c.m[k]
+func (c _Map2[K, V, E]) Has(k K) bool {
+	_, ok := c[k]
 	return ok
 }
-func (c mapAsConstImpl[K, V, E]) All() iter.Seq2[K, V] {
+func (c _Map2[K, V, E]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
-		for k, v := range c.m {
+		for k, v := range c {
 			if !yield(k, v.AsConst()) {
 				return
 			}

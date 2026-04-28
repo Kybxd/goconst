@@ -11,7 +11,12 @@ import (
 	proto "google.golang.org/protobuf/proto"
 )
 
-// Address_Const is a read-only interface of Address.
+// Address_Const is a read-only interface view of Address.
+//
+// *Address itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Address.
 type Address_Const interface {
 	proto.Message
 
@@ -20,90 +25,97 @@ type Address_Const interface {
 	GetZip() string
 }
 
-type _Address_Const struct {
-	*Address
-}
-
-var _ Address_Const = (*_Address_Const)(nil)
+var _ Address_Const = (*Address)(nil)
 
 // AsConst returns x as its read-only Address_Const view.
+//
+// This is a zero-allocation cast: *Address already implements
+// Address_Const, so the receiver is returned unchanged.
 func (x *Address) AsConst() Address_Const {
-	return &_Address_Const{Address: x}
+	return x
 }
 
-// Person_Const is a read-only interface of Person.
+// Person_Const is a read-only interface view of Person.
+//
+// *Person itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Person.
 type Person_Const interface {
 	proto.Message
 
 	GetName() string
 	GetAge() int32
-	GetHome() Address_Const
-	GetTags() goconst.Slice[string]
-	GetPrevAddresses() goconst.Slice[Address_Const]
-	GetAttributes() goconst.Map[string, string]
-	GetAddressBook() goconst.Map[int64, Address_Const]
-	GetContact() Person_Contact_Const
+	ConstHome() Address_Const
+	ConstTags() goconst.Slice[string]
+	ConstPrevAddresses() goconst.Slice[Address_Const]
+	ConstAttributes() goconst.Map[string, string]
+	ConstAddressBook() goconst.Map[int64, Address_Const]
+	ConstContact() Person_Contact_Const
 }
 
-type _Person_Const struct {
-	*Person
-}
-
-var _ Person_Const = (*_Person_Const)(nil)
+var _ Person_Const = (*Person)(nil)
 
 // AsConst returns x as its read-only Person_Const view.
+//
+// This is a zero-allocation cast: *Person already implements
+// Person_Const, so the receiver is returned unchanged.
 func (x *Person) AsConst() Person_Const {
-	return &_Person_Const{Person: x}
+	return x
 }
 
-func (x *_Person_Const) GetHome() Address_Const {
-	return x.Person.GetHome().AsConst()
+func (x *Person) ConstHome() Address_Const {
+	return x.GetHome()
 }
 
-func (x *_Person_Const) GetTags() goconst.Slice[string] {
-	return goconst.NewSlice(x.Person.GetTags())
+func (x *Person) ConstTags() goconst.Slice[string] {
+	return goconst.NewSlice(x.GetTags())
 }
 
-func (x *_Person_Const) GetPrevAddresses() goconst.Slice[Address_Const] {
-	return goconst.NewSlice2(x.Person.GetPrevAddresses())
+func (x *Person) ConstPrevAddresses() goconst.Slice[Address_Const] {
+	return goconst.NewSlice2(x.GetPrevAddresses())
 }
 
-func (x *_Person_Const) GetAttributes() goconst.Map[string, string] {
-	return goconst.NewMap(x.Person.GetAttributes())
+func (x *Person) ConstAttributes() goconst.Map[string, string] {
+	return goconst.NewMap(x.GetAttributes())
 }
 
-func (x *_Person_Const) GetAddressBook() goconst.Map[int64, Address_Const] {
-	return goconst.NewMap2(x.Person.GetAddressBook())
+func (x *Person) ConstAddressBook() goconst.Map[int64, Address_Const] {
+	return goconst.NewMap2(x.GetAddressBook())
 }
 
-func (x *_Person_Const) GetContact() Person_Contact_Const {
-	return x.Person.GetContact().AsConst()
+func (x *Person) ConstContact() Person_Contact_Const {
+	return x.GetContact()
 }
 
-// Person_Contact_Const is a read-only interface of Person_Contact.
+// Person_Contact_Const is a read-only interface view of Person_Contact.
+//
+// *Person_Contact itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Person_Contact.
 type Person_Contact_Const interface {
 	proto.Message
 
 	GetEmail() string
-	GetPhones() goconst.Slice[string]
-	GetLocations() goconst.Map[string, Address_Const]
+	ConstPhones() goconst.Slice[string]
+	ConstLocations() goconst.Map[string, Address_Const]
 }
 
-type _Person_Contact_Const struct {
-	*Person_Contact
-}
-
-var _ Person_Contact_Const = (*_Person_Contact_Const)(nil)
+var _ Person_Contact_Const = (*Person_Contact)(nil)
 
 // AsConst returns x as its read-only Person_Contact_Const view.
+//
+// This is a zero-allocation cast: *Person_Contact already implements
+// Person_Contact_Const, so the receiver is returned unchanged.
 func (x *Person_Contact) AsConst() Person_Contact_Const {
-	return &_Person_Contact_Const{Person_Contact: x}
+	return x
 }
 
-func (x *_Person_Contact_Const) GetPhones() goconst.Slice[string] {
-	return goconst.NewSlice(x.Person_Contact.GetPhones())
+func (x *Person_Contact) ConstPhones() goconst.Slice[string] {
+	return goconst.NewSlice(x.GetPhones())
 }
 
-func (x *_Person_Contact_Const) GetLocations() goconst.Map[string, Address_Const] {
-	return goconst.NewMap2(x.Person_Contact.GetLocations())
+func (x *Person_Contact) ConstLocations() goconst.Map[string, Address_Const] {
+	return goconst.NewMap2(x.GetLocations())
 }

@@ -43,13 +43,13 @@ func newEnvelope() (*Envelope, *external.External, *timestamppb.Timestamp) {
 }
 
 // TestEnvelope_NonExcluded_ReturnsConst: `addr` references nested.Address,
-// which is NOT in --exclude_packages, so GetAddr() must hand back a
+// which is NOT in --exclude_packages, so ConstAddr() must hand back a
 // nested.Address_Const projection (not a concrete *nested.Address).
 func TestEnvelope_NonExcluded_ReturnsConst(t *testing.T) {
 	env, _, _ := newEnvelope()
 	c := env.AsConst()
 
-	got := c.GetAddr()
+	got := c.ConstAddr()
 	var _ nested.Address_Const = got // compile-time contract
 
 	if got.GetCity() != "C" {
@@ -78,7 +78,7 @@ func TestEnvelope_Excluded_RepeatedKeepsConcrete(t *testing.T) {
 	env, ext, _ := newEnvelope()
 	c := env.AsConst()
 
-	s := c.GetExtras()
+	s := c.ConstExtras()
 	var _ goconst.Slice[*external.External] = s // compile-time contract
 
 	if s.Len() != 2 {
@@ -98,7 +98,7 @@ func TestEnvelope_Excluded_MapKeepsConcrete(t *testing.T) {
 	env, ext, _ := newEnvelope()
 	c := env.AsConst()
 
-	m := c.GetExtMap()
+	m := c.ConstExtMap()
 	var _ goconst.Map[string, *external.External] = m // compile-time contract
 
 	v, ok := m.Get("a")
@@ -126,14 +126,14 @@ func TestEnvelope_WKT_TimestampExcluded(t *testing.T) {
 	}
 
 	// repeated
-	hs := c.GetHistory()
+	hs := c.ConstHistory()
 	var _ goconst.Slice[*timestamppb.Timestamp] = hs
 	if hs.Len() != 1 || hs.At(0) != ts {
 		t.Errorf("History[0] must be the same pointer: got=%p want=%p", hs.At(0), ts)
 	}
 
 	// map
-	mp := c.GetTsMap()
+	mp := c.ConstTsMap()
 	var _ goconst.Map[string, *timestamppb.Timestamp] = mp
 	v, ok := mp.Get("t")
 	if !ok || v != ts {

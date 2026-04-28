@@ -59,14 +59,14 @@ func TestAddress_AsConst(t *testing.T) {
 	}
 }
 
-// TestPerson_SingularMessage checks that GetHome() on the _Const view
+// TestPerson_SingularMessage checks that ConstHome() on the _Const view
 // returns an Address_Const whose concrete data matches the backing Address.
 func TestPerson_SingularMessage(t *testing.T) {
 	p := newPerson()
 	c := p.AsConst()
-	home := c.GetHome()
+	home := c.ConstHome()
 	if home == nil {
-		t.Fatal("GetHome() returned nil _Const view")
+		t.Fatal("ConstHome() returned nil _Const view")
 	}
 	if home.GetStreet() != "Main 1" || home.GetCity() != "SF" || home.GetZip() != "94101" {
 		t.Fatalf("Home mismatch: %+v", home)
@@ -79,19 +79,20 @@ func TestPerson_SingularMessage(t *testing.T) {
 func TestPerson_NilSingularMessage(t *testing.T) {
 	p := &Person{Name: "no-home"}
 	c := p.AsConst()
-	home := c.GetHome()
+	home := c.ConstHome()
 	if home == nil {
-		t.Fatal("GetHome() on missing field must return a typed non-nil view")
+		t.Fatal("ConstHome() on missing field must return a typed non-nil view")
 	}
 	if got := home.GetStreet(); got != "" {
 		t.Errorf("Street on nil-backed Home: got %q, want \"\"", got)
 	}
 }
 
-// TestPerson_RepeatedScalar covers goconst.NewSlice for a []string field.
+// TestPerson_RepeatedScalar covers goconst.NewSlice for a []string field,
+// exposed through ConstTags() under the direct-style API.
 func TestPerson_RepeatedScalar(t *testing.T) {
 	c := newPerson().AsConst()
-	s := c.GetTags()
+	s := c.ConstTags()
 	if got := s.Len(); got != 3 {
 		t.Fatalf("Tags.Len: got %d want 3", got)
 	}
@@ -113,9 +114,10 @@ func TestPerson_RepeatedScalar(t *testing.T) {
 
 // TestPerson_RepeatedMessage covers goconst.NewSlice2: every element is
 // projected through AsConst, so At(i) returns Address_Const (not *Address).
+// Exposed through ConstPrevAddresses() under the direct-style API.
 func TestPerson_RepeatedMessage(t *testing.T) {
 	c := newPerson().AsConst()
-	s := c.GetPrevAddresses()
+	s := c.ConstPrevAddresses()
 
 	// Static type assertion: the getter must return Slice[Address_Const].
 	var _ goconst.Slice[Address_Const] = s
@@ -138,10 +140,11 @@ func TestPerson_RepeatedMessage(t *testing.T) {
 	}
 }
 
-// TestPerson_MapScalar covers goconst.NewMap for map<string,string>.
+// TestPerson_MapScalar covers goconst.NewMap for map<string,string>,
+// exposed through ConstAttributes() under the direct-style API.
 func TestPerson_MapScalar(t *testing.T) {
 	c := newPerson().AsConst()
-	m := c.GetAttributes()
+	m := c.ConstAttributes()
 
 	if got := m.Len(); got != 2 {
 		t.Fatalf("Attributes.Len: got %d want 2", got)
@@ -171,9 +174,10 @@ func TestPerson_MapScalar(t *testing.T) {
 
 // TestPerson_MapMessage covers goconst.NewMap2 for map<int64,Address>:
 // values come out as Address_Const, concrete Address is not exposed.
+// Exposed through ConstAddressBook() under the direct-style API.
 func TestPerson_MapMessage(t *testing.T) {
 	c := newPerson().AsConst()
-	m := c.GetAddressBook()
+	m := c.ConstAddressBook()
 
 	// Static type assertion: value type must be the _Const interface.
 	var _ goconst.Map[int64, Address_Const] = m
@@ -203,18 +207,18 @@ func TestPerson_MapMessage(t *testing.T) {
 // Person_Contact, including its own repeated and map with message value.
 func TestPerson_NestedType(t *testing.T) {
 	c := newPerson().AsConst()
-	contact := c.GetContact()
+	contact := c.ConstContact()
 	if contact == nil {
 		t.Fatal("Contact: nil _Const")
 	}
 	if contact.GetEmail() != "a@x.com" {
 		t.Errorf("Contact.Email: got %q", contact.GetEmail())
 	}
-	if contact.GetPhones().Len() != 2 {
-		t.Errorf("Contact.Phones.Len: got %d want 2", contact.GetPhones().Len())
+	if contact.ConstPhones().Len() != 2 {
+		t.Errorf("Contact.Phones.Len: got %d want 2", contact.ConstPhones().Len())
 	}
 
-	locs := contact.GetLocations()
+	locs := contact.ConstLocations()
 	var _ goconst.Map[string, Address_Const] = locs
 	if locs.Len() != 2 {
 		t.Fatalf("Contact.Locations.Len: got %d want 2", locs.Len())
@@ -234,7 +238,7 @@ func BenchmarkNested_NewSlice_Scalar(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.GetTags()
+		benchNestedSink = c.ConstTags()
 	}
 }
 
@@ -243,7 +247,7 @@ func BenchmarkNested_NewSlice2_Message(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.GetPrevAddresses()
+		benchNestedSink = c.ConstPrevAddresses()
 	}
 }
 
@@ -252,7 +256,7 @@ func BenchmarkNested_NewMap_Scalar(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.GetAttributes()
+		benchNestedSink = c.ConstAttributes()
 	}
 }
 
@@ -261,7 +265,7 @@ func BenchmarkNested_NewMap2_Message(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.GetAddressBook()
+		benchNestedSink = c.ConstAddressBook()
 	}
 }
 
@@ -281,7 +285,7 @@ func BenchmarkNested_Iter_TagsRaw(b *testing.B) {
 
 func BenchmarkNested_Iter_TagsViaAll(b *testing.B) {
 	c := newPerson().AsConst()
-	s := c.GetTags()
+	s := c.ConstTags()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var n int
@@ -295,7 +299,7 @@ func BenchmarkNested_Iter_TagsViaAll(b *testing.B) {
 
 func BenchmarkNested_Iter_PrevAddressesViaAll(b *testing.B) {
 	c := newPerson().AsConst()
-	s := c.GetPrevAddresses()
+	s := c.ConstPrevAddresses()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var n int
@@ -309,7 +313,7 @@ func BenchmarkNested_Iter_PrevAddressesViaAll(b *testing.B) {
 }
 
 func BenchmarkNested_Map_GetHit(b *testing.B) {
-	m := newPerson().AsConst().GetAddressBook()
+	m := newPerson().AsConst().ConstAddressBook()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

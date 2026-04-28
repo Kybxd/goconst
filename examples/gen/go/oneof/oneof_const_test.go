@@ -30,11 +30,11 @@ func TestEvent_OneofArm_Note(t *testing.T) {
 	if c.GetCount() != 0 {
 		t.Errorf("Count arm should be zero when not selected: got %d", c.GetCount())
 	}
-	// GetLocation must return a typed non-nil interface whose backing value
+	// ConstLocation must return a typed non-nil interface whose backing value
 	// is a nil *Address; its scalar getters must all return zero values.
-	loc := c.GetLocation()
+	loc := c.ConstLocation()
 	if loc == nil {
-		t.Fatal("GetLocation must return typed non-nil interface")
+		t.Fatal("ConstLocation must return typed non-nil interface")
 	}
 	if loc.GetCity() != "" {
 		t.Errorf("Location on wrong arm: GetCity=%q, want \"\"", loc.GetCity())
@@ -54,13 +54,14 @@ func TestEvent_OneofArm_Count(t *testing.T) {
 }
 
 // TestEvent_OneofArm_Location: when payload=Location, the _Const view must
-// project it through AsConst and return a nested.Address_Const.
+// project it through AsConst and return a nested.Address_Const (under the
+// direct-style API, that projection is exposed as ConstLocation()).
 func TestEvent_OneofArm_Location(t *testing.T) {
 	addr := &nested.Address{Street: "Elm", City: "Paris", Zip: "75000"}
 	e := &Event{Id: "e3", Payload: &Event_Location{Location: addr}}
 	c := e.AsConst()
 
-	loc := c.GetLocation()
+	loc := c.ConstLocation()
 	if loc == nil {
 		t.Fatal("Location: nil _Const")
 	}
@@ -77,9 +78,9 @@ func TestEvent_OneofArm_UnsetAll(t *testing.T) {
 	if c.GetNote() != "" || c.GetCount() != 0 {
 		t.Errorf("unset arms not zero: note=%q count=%d", c.GetNote(), c.GetCount())
 	}
-	loc := c.GetLocation()
+	loc := c.ConstLocation()
 	if loc == nil {
-		t.Fatal("GetLocation on empty Event must return typed non-nil")
+		t.Fatal("ConstLocation on empty Event must return typed non-nil")
 	}
 	if loc.GetCity() != "" {
 		t.Errorf("unset Location.City: got %q", loc.GetCity())

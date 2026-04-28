@@ -14,47 +14,51 @@ import (
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Envelope_Const is a read-only interface of Envelope.
+// Envelope_Const is a read-only interface view of Envelope.
+//
+// *Envelope itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Envelope.
 type Envelope_Const interface {
 	proto.Message
 
 	GetId() string
-	GetAddr() nested.Address_Const
+	ConstAddr() nested.Address_Const
 	GetExt() *external.External
-	GetExtras() goconst.Slice[*external.External]
-	GetExtMap() goconst.Map[string, *external.External]
+	ConstExtras() goconst.Slice[*external.External]
+	ConstExtMap() goconst.Map[string, *external.External]
 	GetCreatedAt() *timestamppb.Timestamp
-	GetHistory() goconst.Slice[*timestamppb.Timestamp]
-	GetTsMap() goconst.Map[string, *timestamppb.Timestamp]
+	ConstHistory() goconst.Slice[*timestamppb.Timestamp]
+	ConstTsMap() goconst.Map[string, *timestamppb.Timestamp]
 }
 
-type _Envelope_Const struct {
-	*Envelope
-}
-
-var _ Envelope_Const = (*_Envelope_Const)(nil)
+var _ Envelope_Const = (*Envelope)(nil)
 
 // AsConst returns x as its read-only Envelope_Const view.
+//
+// This is a zero-allocation cast: *Envelope already implements
+// Envelope_Const, so the receiver is returned unchanged.
 func (x *Envelope) AsConst() Envelope_Const {
-	return &_Envelope_Const{Envelope: x}
+	return x
 }
 
-func (x *_Envelope_Const) GetAddr() nested.Address_Const {
-	return x.Envelope.GetAddr().AsConst()
+func (x *Envelope) ConstAddr() nested.Address_Const {
+	return x.GetAddr()
 }
 
-func (x *_Envelope_Const) GetExtras() goconst.Slice[*external.External] {
-	return goconst.NewSlice(x.Envelope.GetExtras())
+func (x *Envelope) ConstExtras() goconst.Slice[*external.External] {
+	return goconst.NewSlice(x.GetExtras())
 }
 
-func (x *_Envelope_Const) GetExtMap() goconst.Map[string, *external.External] {
-	return goconst.NewMap(x.Envelope.GetExtMap())
+func (x *Envelope) ConstExtMap() goconst.Map[string, *external.External] {
+	return goconst.NewMap(x.GetExtMap())
 }
 
-func (x *_Envelope_Const) GetHistory() goconst.Slice[*timestamppb.Timestamp] {
-	return goconst.NewSlice(x.Envelope.GetHistory())
+func (x *Envelope) ConstHistory() goconst.Slice[*timestamppb.Timestamp] {
+	return goconst.NewSlice(x.GetHistory())
 }
 
-func (x *_Envelope_Const) GetTsMap() goconst.Map[string, *timestamppb.Timestamp] {
-	return goconst.NewMap(x.Envelope.GetTsMap())
+func (x *Envelope) ConstTsMap() goconst.Map[string, *timestamppb.Timestamp] {
+	return goconst.NewMap(x.GetTsMap())
 }

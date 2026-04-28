@@ -1,0 +1,13 @@
+# Built binary of the plugin, produced by `go build ./cmd/protoc-gen-go-const`.
+#
+# The leading slash anchors this rule to the repository root, so it matches
+# the 8MB binary that lands next to README.md but NOT the same-named Go
+# package directory at cmd/protoc-gen-go-const/ (which is a directory in a
+# different path and therefore cannot collide with this pattern).
+/protoc-gen-go-const
+
+# Common Go build / test artifacts.
+*.test
+*.out
+coverage.txt
+coverage.html

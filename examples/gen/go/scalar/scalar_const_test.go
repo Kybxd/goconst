@@ -133,10 +133,11 @@ func TestAllScalars_AsConst_UnsetOptionalDefaults(t *testing.T) {
 	}
 }
 
-// TestAllScalars_AsConst_NilReceiver makes sure the embedded-pointer trick
-// used by _AllScalars_Const propagates nil correctly. We construct a typed
-// nil *AllScalars, wrap it, and call every scalar getter through the view;
-// none must panic, all must return the scalar zero-value.
+// TestAllScalars_AsConst_NilReceiver ensures that calling AsConst() on a
+// typed-nil *AllScalars does not introduce any panic: since AsConst is just
+// `return x` under the direct style, the resulting interface value carries
+// a typed-nil pointer whose scalar getters are nil-safe and must all yield
+// the scalar zero-value.
 func TestAllScalars_AsConst_NilReceiver(t *testing.T) {
 	var m *AllScalars
 	c := m.AsConst()
@@ -161,8 +162,9 @@ func TestAllScalars_AsConst_NilReceiver(t *testing.T) {
 //
 // Pair each "via concrete getter" benchmark with its "via _Const interface"
 // counterpart so the two numbers can be diff'd directly. Both call the exact
-// same underlying field access; any delta is the interface-dispatch +
-// embedded-struct wrapper cost.
+// same underlying field access; any delta is the interface-dispatch cost
+// (*AllScalars itself implements AllScalars_Const, so there is no wrapper
+// allocation, just the iface box + dynamic dispatch on the method call).
 
 var benchScalarSink int64
 

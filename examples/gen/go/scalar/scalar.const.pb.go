@@ -10,7 +10,12 @@ import (
 	proto "google.golang.org/protobuf/proto"
 )
 
-// AllScalars_Const is a read-only interface of AllScalars.
+// AllScalars_Const is a read-only interface view of AllScalars.
+//
+// *AllScalars itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *AllScalars.
 type AllScalars_Const interface {
 	proto.Message
 
@@ -35,13 +40,12 @@ type AllScalars_Const interface {
 	GetFOptionalEnum() Color
 }
 
-type _AllScalars_Const struct {
-	*AllScalars
-}
-
-var _ AllScalars_Const = (*_AllScalars_Const)(nil)
+var _ AllScalars_Const = (*AllScalars)(nil)
 
 // AsConst returns x as its read-only AllScalars_Const view.
+//
+// This is a zero-allocation cast: *AllScalars already implements
+// AllScalars_Const, so the receiver is returned unchanged.
 func (x *AllScalars) AsConst() AllScalars_Const {
-	return &_AllScalars_Const{AllScalars: x}
+	return x
 }

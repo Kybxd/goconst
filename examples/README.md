@@ -71,18 +71,20 @@ With both on you can verify (mainly in
 * No `External_Const` interface is emitted for the `external` package
   (its `.const.pb.go` may be absent entirely).
 * Inside `Envelope_Const`:
-  * `GetExt()`        returns `*external.External` (concrete type).
-  * `GetExtras()`     returns `goconst.Slice[*external.External]`.
-  * `GetExtMap()`     returns `goconst.Map[string, *external.External]`.
-  * `GetCreatedAt()`  returns `*timestamppb.Timestamp`.
-  * `GetHistory()`    returns `goconst.Slice[*timestamppb.Timestamp]`.
-  * `GetTsMap()`      returns `goconst.Map[string, *timestamppb.Timestamp]`.
-  * None of the overridden getters call `.AsConst()` on excluded values.
+  * `GetExt()`           returns `*external.External` (concrete type,
+    signature unchanged from the concrete getter, so no `Const` suffix).
+  * `ConstExtras()`   returns `goconst.Slice[*external.External]`.
+  * `ConstExtMap()`   returns `goconst.Map[string, *external.External]`.
+  * `GetCreatedAt()`     returns `*timestamppb.Timestamp` (unchanged).
+  * `ConstHistory()`  returns `goconst.Slice[*timestamppb.Timestamp]`.
+  * `ConstTsMap()`    returns `goconst.Map[string, *timestamppb.Timestamp]`.
+  * None of the emitted companions call `.AsConst()` on excluded values.
 
 To see the **opposite** behaviour for the in-repo `external` package,
 comment its `exclude_packages=...` line out and rerun `buf generate`:
-the same getters will then return `External_Const` views and call
-`.AsConst()` under the hood.
+the same getters will then return `External_Const` views (and be renamed
+to `ConstExt() / ConstExtras() / ConstExtMap()`) with
+`.AsConst()` chained under the hood.
 
 > ⚠️ Do **not** remove the `timestamppb` entry without first removing
 > the WKT fields from `importer.proto` — the output would reference a

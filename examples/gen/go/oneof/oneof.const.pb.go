@@ -11,27 +11,31 @@ import (
 	proto "google.golang.org/protobuf/proto"
 )
 
-// Event_Const is a read-only interface of Event.
+// Event_Const is a read-only interface view of Event.
+//
+// *Event itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Event.
 type Event_Const interface {
 	proto.Message
 
 	GetId() string
 	GetNote() string
 	GetCount() int32
-	GetLocation() nested.Address_Const
+	ConstLocation() nested.Address_Const
 }
 
-type _Event_Const struct {
-	*Event
-}
-
-var _ Event_Const = (*_Event_Const)(nil)
+var _ Event_Const = (*Event)(nil)
 
 // AsConst returns x as its read-only Event_Const view.
+//
+// This is a zero-allocation cast: *Event already implements
+// Event_Const, so the receiver is returned unchanged.
 func (x *Event) AsConst() Event_Const {
-	return &_Event_Const{Event: x}
+	return x
 }
 
-func (x *_Event_Const) GetLocation() nested.Address_Const {
-	return x.Event.GetLocation().AsConst()
+func (x *Event) ConstLocation() nested.Address_Const {
+	return x.GetLocation()
 }
