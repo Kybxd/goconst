@@ -12,7 +12,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.1.1"
+const version = "0.2.0"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the generated _Const interfaces via an embedded
