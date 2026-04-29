@@ -8,7 +8,10 @@
 // [Slice] / [Map] instead, so a caller can:
 //
 //   - query length and look up by index / key without having to iterate;
-//   - iterate via the standard range-over-func form using All();
+//   - iterate via the standard range-over-func form using All(), or get a
+//     single-value iterator via Slice.Values / Map.Keys / Map.Values that
+//     plugs straight into stdlib sinks (slices.Collect, slices.Sorted, …)
+//     and any iter.Seq-aware third-party helper (e.g. samber/lo/it);
 //   - but cannot append, grow, shrink or overwrite the underlying
 //     collection.
 //
@@ -32,9 +35,10 @@ import (
 //
 // The value is cheap to pass around (a named slice type, no struct wrapper)
 // and supports direct length / index access as well as ranged iteration via
-// All / Values. It also embeds [SliceAlgo] to expose a curated set of
-// read-only algorithms (e.g. ContainsBy, Find, MinBy) that mirror
-// github.com/samber/lo without requiring T to be comparable.
+// All / Values. Higher-level algorithms (ContainsBy, Find, MinBy, ...) are
+// intentionally not methods on this interface: callers can reuse any
+// [iter.Seq]-aware helper, e.g. github.com/samber/lo/it, directly against
+// [Slice.Values] / [Slice.All].
 type Slice[T any] interface {
 	// Len returns the number of elements in the underlying slice.
 	Len() int
@@ -48,13 +52,9 @@ type Slice[T any] interface {
 	// Values returns a range-over-func iterator yielding just the elements
 	// in order. It is the single-value companion to [Slice.All] and can be
 	// fed directly into standard library sinks such as [slices.Collect] or
-	// [slices.Sorted]. Analogue of [slices.Values].
+	// [slices.Sorted], or into iter-aware third-party helpers such as
+	// github.com/samber/lo/it. Analogue of [slices.Values].
 	Values() iter.Seq[T]
-
-	// SliceAlgo exposes lo-style read-only algorithms (ContainsBy,
-	// CountBy, EveryBy, NoneBy, Find, MinBy, MaxBy) on the underlying
-	// slice. See [SliceAlgo] for the full method set.
-	SliceAlgo[T]
 }
 
 // Map is a read-only view over a map protobuf field with key type K and

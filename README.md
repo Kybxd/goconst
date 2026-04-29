@@ -112,6 +112,7 @@ type Slice[T any] interface {
     Len() int
     At(i int) T
     All() iter.Seq2[int, T]   // for i, v := range s.All()
+    Values() iter.Seq[T]      // slices.Collect(s.Values()), slices.Sorted(...)
 }
 
 type Map[K comparable, V any] interface {
@@ -119,13 +120,20 @@ type Map[K comparable, V any] interface {
     Get(k K) (V, bool)
     Has(k K) bool
     All() iter.Seq2[K, V]     // for k, v := range m.All()
+    Keys() iter.Seq[K]        // maps.Keys-shape, pipe into slices.Collect / Sorted
+    Values() iter.Seq[V]      // maps.Values-shape, same idea
 }
 ```
 
 so callers keep O(1) length / indexed / keyed access *and* the familiar
 range-over-func syntax, but lose `append` / slot assignment at the type
-level. The two concrete implementations are provided by the `goconst`
-package itself via
+level. Because `Values` / `Keys` return `iter.Seq[…]`, the read-only
+view plugs straight into stdlib sinks (`slices.Collect`, `slices.Sorted`,
+`maps.Collect`, …) and any `iter.Seq`-aware third-party helper such as
+`github.com/samber/lo/it` — higher-level algorithms (`ContainsBy`,
+`Find`, `MinBy`, …) live there rather than on this interface. The two
+concrete implementations are provided by the `goconst` package itself
+via
 
 ```go
 // Scalar / excluded-package elements — pass values through unchanged.
