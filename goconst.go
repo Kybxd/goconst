@@ -26,9 +26,11 @@ import "iter"
 
 // Slice is a read-only view over a repeated protobuf field of element type T.
 //
-// The value is cheap to pass around (a small struct holding the underlying
-// slice) and supports direct length / index access as well as ranged
-// iteration via All.
+// The value is cheap to pass around (a named slice type, no struct wrapper)
+// and supports direct length / index access as well as ranged iteration via
+// All. It also embeds [SliceAlgo] to expose a curated set of read-only
+// algorithms (e.g. ContainsBy, Find, MinBy) that mirror github.com/samber/lo
+// without requiring T to be comparable.
 type Slice[T any] interface {
 	// Len returns the number of elements in the underlying slice.
 	Len() int
@@ -38,13 +40,20 @@ type Slice[T any] interface {
 	// All returns a range-over-func iterator yielding (index, element)
 	// pairs in order, compatible with Go 1.23+ "for i, v := range s.All()".
 	All() iter.Seq2[int, T]
+
+	// SliceAlgo exposes lo-style read-only algorithms (ContainsBy,
+	// CountBy, EveryBy, NoneBy, Find, MinBy, MaxBy) on the underlying
+	// slice. See [SliceAlgo] for the full method set.
+	SliceAlgo[T]
 }
 
 // Map is a read-only view over a map protobuf field with key type K and
 // value type V.
 //
 // It mirrors the subset of Go's built-in map operations that do not
-// mutate the map: length, key lookup, presence check, and iteration.
+// mutate the map: length, key lookup, presence check, and iteration. It
+// also embeds [MapAlgo] to expose a curated set of read-only algorithms
+// (e.g. Keys, Values) that mirror github.com/samber/lo.
 type Map[K comparable, V any] interface {
 	// Len returns the number of entries in the underlying map.
 	Len() int
@@ -58,6 +67,10 @@ type Map[K comparable, V any] interface {
 	// in unspecified order, compatible with Go 1.23+
 	// "for k, v := range m.All()".
 	All() iter.Seq2[K, V]
+
+	// MapAlgo exposes lo-style read-only algorithms (Keys, Values) on
+	// the underlying map. See [MapAlgo] for the full method set.
+	MapAlgo[K, V]
 }
 
 // Constable is the constraint satisfied by any value that can be projected
