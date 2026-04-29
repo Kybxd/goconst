@@ -22,15 +22,19 @@
 // read-only method set — no struct wrapper is allocated per call.
 package goconst
 
-import "iter"
+import (
+	"iter"
+	"maps"
+	"slices"
+)
 
 // Slice is a read-only view over a repeated protobuf field of element type T.
 //
 // The value is cheap to pass around (a named slice type, no struct wrapper)
 // and supports direct length / index access as well as ranged iteration via
-// All. It also embeds [SliceAlgo] to expose a curated set of read-only
-// algorithms (e.g. ContainsBy, Find, MinBy) that mirror github.com/samber/lo
-// without requiring T to be comparable.
+// All / Values. It also embeds [SliceAlgo] to expose a curated set of
+// read-only algorithms (e.g. ContainsBy, Find, MinBy) that mirror
+// github.com/samber/lo without requiring T to be comparable.
 type Slice[T any] interface {
 	// Len returns the number of elements in the underlying slice.
 	Len() int
@@ -39,7 +43,13 @@ type Slice[T any] interface {
 	At(i int) T
 	// All returns a range-over-func iterator yielding (index, element)
 	// pairs in order, compatible with Go 1.23+ "for i, v := range s.All()".
+	// Analogue of [slices.All].
 	All() iter.Seq2[int, T]
+	// Values returns a range-over-func iterator yielding just the elements
+	// in order. It is the single-value companion to [Slice.All] and can be
+	// fed directly into standard library sinks such as [slices.Collect] or
+	// [slices.Sorted]. Analogue of [slices.Values].
+	Values() iter.Seq[T]
 
 	// SliceAlgo exposes lo-style read-only algorithms (ContainsBy,
 	// CountBy, EveryBy, NoneBy, Find, MinBy, MaxBy) on the underlying
@@ -51,9 +61,11 @@ type Slice[T any] interface {
 // value type V.
 //
 // It mirrors the subset of Go's built-in map operations that do not
-// mutate the map: length, key lookup, presence check, and iteration. It
-// also embeds [MapAlgo] to expose a curated set of read-only algorithms
-// (e.g. Keys, Values) that mirror github.com/samber/lo.
+// mutate the map: length, key lookup, presence check, and iteration.
+// Keys and Values return range-over-func iterators so callers can feed
+// them directly into [slices.Collect], [slices.Sorted], or any other
+// iter.Seq sink — matching the shape of the standard library's
+// [maps.Keys] and [maps.Values].
 type Map[K comparable, V any] interface {
 	// Len returns the number of entries in the underlying map.
 	Len() int
@@ -65,12 +77,14 @@ type Map[K comparable, V any] interface {
 	Has(k K) bool
 	// All returns a range-over-func iterator yielding (key, value) pairs
 	// in unspecified order, compatible with Go 1.23+
-	// "for k, v := range m.All()".
+	// "for k, v := range m.All()". Analogue of [maps.All].
 	All() iter.Seq2[K, V]
-
-	// MapAlgo exposes lo-style read-only algorithms (Keys, Values) on
-	// the underlying map. See [MapAlgo] for the full method set.
-	MapAlgo[K, V]
+	// Keys returns a range-over-func iterator yielding just the keys in
+	// unspecified order. Analogue of [maps.Keys].
+	Keys() iter.Seq[K]
+	// Values returns a range-over-func iterator yielding just the values
+	// in unspecified order. Analogue of [maps.Values].
+	Values() iter.Seq[V]
 }
 
 // Constable is the constraint satisfied by any value that can be projected
@@ -120,17 +134,10 @@ func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V] {
 
 type _Slice[T any] []T
 
-func (c _Slice[T]) Len() int   { return len(c) }
-func (c _Slice[T]) At(i int) T { return c[i] }
-func (c _Slice[T]) All() iter.Seq2[int, T] {
-	return func(yield func(int, T) bool) {
-		for i, v := range c {
-			if !yield(i, v) {
-				return
-			}
-		}
-	}
-}
+func (c _Slice[T]) Len() int               { return len(c) }
+func (c _Slice[T]) At(i int) T             { return c[i] }
+func (c _Slice[T]) All() iter.Seq2[int, T] { return slices.All(c) }
+func (c _Slice[T]) Values() iter.Seq[T]    { return slices.Values(c) }
 
 type _Slice2[T any, E Constable[T]] []E
 
@@ -140,6 +147,15 @@ func (c _Slice2[T, E]) All() iter.Seq2[int, T] {
 	return func(yield func(int, T) bool) {
 		for i, v := range c {
 			if !yield(i, v.AsConst()) {
+				return
+			}
+		}
+	}
+}
+func (c _Slice2[T, E]) Values() iter.Seq[T] {
+	return func(yield func(T) bool) {
+		for _, v := range c {
+			if !yield(v.AsConst()) {
 				return
 			}
 		}
@@ -157,15 +173,9 @@ func (c _Map[K, V]) Has(k K) bool {
 	_, ok := c[k]
 	return ok
 }
-func (c _Map[K, V]) All() iter.Seq2[K, V] {
-	return func(yield func(K, V) bool) {
-		for k, v := range c {
-			if !yield(k, v) {
-				return
-			}
-		}
-	}
-}
+func (c _Map[K, V]) All() iter.Seq2[K, V] { return maps.All(c) }
+func (c _Map[K, V]) Keys() iter.Seq[K]    { return maps.Keys(c) }
+func (c _Map[K, V]) Values() iter.Seq[V]  { return maps.Values(c) }
 
 type _Map2[K comparable, V any, E Constable[V]] map[K]E
 
@@ -186,6 +196,16 @@ func (c _Map2[K, V, E]) All() iter.Seq2[K, V] {
 	return func(yield func(K, V) bool) {
 		for k, v := range c {
 			if !yield(k, v.AsConst()) {
+				return
+			}
+		}
+	}
+}
+func (c _Map2[K, V, E]) Keys() iter.Seq[K] { return maps.Keys(c) }
+func (c _Map2[K, V, E]) Values() iter.Seq[V] {
+	return func(yield func(V) bool) {
+		for _, v := range c {
+			if !yield(v.AsConst()) {
 				return
 			}
 		}
