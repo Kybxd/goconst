@@ -26,6 +26,7 @@
 package goconst
 
 import (
+	"fmt"
 	"iter"
 	"maps"
 	"slices"
@@ -39,6 +40,11 @@ import (
 // intentionally not methods on this interface: callers can reuse any
 // [iter.Seq]-aware helper, e.g. github.com/samber/lo/it, directly against
 // [Slice.Values] / [Slice.All].
+//
+// The default implementations also satisfy [fmt.Stringer]: passing a Slice
+// to fmt.Print / log.Print / %v produces exactly the same output as
+// printing the underlying []T directly — no extra "Slice[...]" wrapper —
+// so debug logging does not have to go through slices.Collect first.
 type Slice[T any] interface {
 	// Len returns the number of elements in the underlying slice.
 	Len() int
@@ -66,6 +72,11 @@ type Slice[T any] interface {
 // them directly into [slices.Collect], [slices.Sorted], or any other
 // iter.Seq sink — matching the shape of the standard library's
 // [maps.Keys] and [maps.Values].
+//
+// The default implementations also satisfy [fmt.Stringer]: passing a Map
+// to fmt.Print / log.Print / %v produces exactly the same output as
+// printing the underlying map[K]V directly — no extra "Map[...]" wrapper
+// — so debug logging does not have to go through maps.Collect first.
 type Map[K comparable, V any] interface {
 	// Len returns the number of entries in the underlying map.
 	Len() int
@@ -211,3 +222,21 @@ func (c _Map2[K, V, E]) Values() iter.Seq[V] {
 		}
 	}
 }
+
+// String implementations for debug-friendly printing.
+//
+// Each impl delegates to fmt.Sprint on its underlying slice / map type, so
+// "fmt.Println(s)" (or "%v" / "%s" in a format string) produces exactly the
+// same output as printing the raw []T / map[K]V would — including the
+// built-in prototext-style String() of protobuf messages for _Slice2 /
+// _Map2. There is no extra "Slice[...]" / "Map[...]" wrapper in the output.
+//
+// Note that _Slice2 / _Map2 print the *underlying* elements E, not the
+// projected T views, so that protobuf messages (whose pointer type already
+// has a rich String()) render in full rather than as opaque interface
+// addresses.
+
+func (c _Slice[T]) String() string      { return fmt.Sprint([]T(c)) }
+func (c _Slice2[T, E]) String() string  { return fmt.Sprint([]E(c)) }
+func (c _Map[K, V]) String() string     { return fmt.Sprint(map[K]V(c)) }
+func (c _Map2[K, V, E]) String() string { return fmt.Sprint(map[K]E(c)) }

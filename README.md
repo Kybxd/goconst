@@ -150,6 +150,27 @@ so the plugin only has to emit a **one-line companion getter** per
 message / repeated / map field — *Message itself satisfies its _Const
 interface, so no wrapper type is generated.
 
+### Debug printing
+
+`Slice` / `Map` values returned by `goconst.NewSlice(...)` /
+`NewSlice2(...)` / `NewMap(...)` / `NewMap2(...)` all implement
+`fmt.Stringer`. Printing one with `fmt.Print*`, `log.Print*`, or `%v`
+produces exactly the same output as printing the raw `[]T` / `map[K]V`
+would — no extra `Slice[...]` / `Map[...]` wrapper, no intermediate
+`slices.Collect` / `maps.Collect` step needed:
+
+```go
+s := goconst.NewSlice2(p.GetPrevAddresses())
+fmt.Println(s)                     // == fmt.Println(p.GetPrevAddresses())
+
+m := goconst.NewMap2(p.GetAddressBook())
+fmt.Println(m)                     // == fmt.Println(p.GetAddressBook())
+```
+
+For message-element variants (`NewSlice2` / `NewMap2`) the underlying
+protobuf messages are printed directly, so you get their rich built-in
+prototext-style `String()` rather than opaque interface addresses.
+
 Key design points:
 
 * **Scalars / enums / `bytes`** keep the stdlib Go type and reuse the
