@@ -359,7 +359,7 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 
 		g.P("func ", recv, " Const", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			// Type arguments are omitted on purpose: Go 1.21+ constraint
+			// Type arguments are omitted on purpose: Go 1.23+ constraint
 			// type inference recovers both E (the slice element type) and
 			// T (from the Constable[T] constraint on E) from the argument,
 			// so spelling them out triggers the "unnecessary type

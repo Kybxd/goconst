@@ -63,46 +63,61 @@ message Envelope {
 the plugin generates (roughly):
 
 ```go
-import "github.com/Kybxd/goconst"
+import (
+	goconst "github.com/Kybxd/goconst"
+	proto "google.golang.org/protobuf/proto"
+)
 
 // Envelope_Const is a read-only interface view of Envelope.
 //
-// *Envelope itself satisfies this interface: scalar getters are inherited
-// from the concrete type, and the message / repeated / map getters whose
-// signatures differ are exposed via Const<Name> methods below.
+// *Envelope itself satisfies this interface: scalar / enum / bytes
+// getters are inherited from the concrete type unchanged, and the
+// message / repeated / map getters whose signatures differ are
+// exposed via Const<Name> methods generated directly on *Envelope.
 type Envelope_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
-	GetId() string                                 // scalar: concrete getter reused
-	ConstAddr() Address_Const                   // singular message
-	ConstHistory() goconst.Slice[Address_Const] // repeated
-	ConstByTag() goconst.Map[string, Address_Const] // map
+	GetId() string
+	ConstAddr() Address_Const
+	ConstHistory() goconst.Slice[Address_Const]
+	ConstByTag() goconst.Map[string, Address_Const]
 }
 
-// Compile-time assertion: dropping a field on the proto side turns into a
-// build error instead of an interface-not-implemented runtime surprise.
 var _ Envelope_Const = (*Envelope)(nil)
 
-// AsConst is a zero-allocation cast: *Envelope already implements
-// Envelope_Const, so the receiver is returned unchanged. The method is
-// kept for readability and to give *Envelope a Constable[Envelope_Const]
-// witness that parent messages can feed into goconst.NewSlice2 / NewMap2.
-func (x *Envelope) AsConst() Envelope_Const { return x }
-
-// Const<Name> companions are attached directly to *Envelope. They
-// delegate to runtime constructors in the goconst package; type
-// arguments are omitted so that Go 1.21+ constraint type inference
-// recovers both the element type and its _Const projection.
-func (x *Envelope) ConstAddr() Address_Const {
-	return x.GetAddr().AsConst()
+// AsConst returns x as its read-only Envelope_Const view.
+//
+// This is a zero-allocation cast: *Envelope already implements
+// Envelope_Const, so the receiver is returned unchanged.
+func (x *Envelope) AsConst() Envelope_Const {
+	return x
 }
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no Envelope behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Envelope boxed into the Envelope_Const interface.
+func (x *Envelope) IsNil() bool {
+	return x == nil
+}
+
+func (x *Envelope) ConstAddr() Address_Const {
+	return x.GetAddr()
+}
+
 func (x *Envelope) ConstHistory() goconst.Slice[Address_Const] {
 	return goconst.NewSlice2(x.GetHistory())
 }
+
 func (x *Envelope) ConstByTag() goconst.Map[string, Address_Const] {
 	return goconst.NewMap2(x.GetByTag())
 }
 ```
+
+(For a full end-to-end output including cross-package imports,
+`*timestamppb.Timestamp` fields and `Slice` / `Map` over imported
+messages, see [`examples/gen/go/importer/importer.const.pb.go`](examples/gen/go/importer/importer.const.pb.go).)
 
 `goconst.Slice[T]` / `goconst.Map[K, V]` are defined in this repo's
 root package (see [goconst.go](goconst.go)) and offer:
@@ -300,14 +315,18 @@ Key design points:
   concrete `*Message`'s getter — no companion is emitted and the
   interface lists the plain `GetName()` name.
 * **Singular message fields** switch to the callee's `T_Const` view. A
-  `ConstAddr()` companion on `*Message` calls
-  `x.GetAddr().AsConst()`; because `AsConst()` is itself a return-x
-  cast, the whole chain compiles to a single pointer load.
+  `ConstAddr()` companion on `*Message` is a one-liner returning
+  `x.GetAddr()` directly — no explicit `.AsConst()` hop is emitted,
+  because `*Address` itself implements `Address_Const`, so Go's implicit
+  interface conversion performs the cast at zero cost. This also
+  preserves proto3's nil-safe getter semantics: a typed-nil `*Address`
+  becomes a non-nil `Address_Const` interface value whose scalar
+  getters still return zero values instead of panicking.
 * **Repeated fields** switch from `[]T` to `goconst.Slice[T_Const]` (or
   `goconst.Slice[T]` for scalar element types). The companion
   `ConstHistory()` delegates to `goconst.NewSlice2(...)` for message
   elements and to `goconst.NewSlice(...)` for scalar / excluded-package
-  elements. Type arguments are omitted on purpose — Go 1.21+ constraint
+  elements. Type arguments are omitted on purpose — Go 1.23+ constraint
   type inference recovers both the element type and the projected
   `_Const` type automatically.
 * **Map fields** switch from `map[K]V` to `goconst.Map[K, V_Const]`
@@ -458,8 +477,8 @@ The analyzer is a no-op on packages that do not (transitively) import
 Comma/repeat-style flag listing Go import paths that should **not** get
 `*_Const` views. When a field references a message from an excluded
 package, the plugin keeps the concrete `*Type` in the enclosing `_Const`
-interface (and skips the `.AsConst()` hop on any emitted `Const<Name>`
-companion getter):
+interface (and therefore emits no `Const<Name>` companion for it at all,
+since the signature already matches the concrete getter):
 
 ```yaml
 opt:
@@ -475,9 +494,9 @@ Typical use cases:
    `Wrappers*`, …). These are produced by the upstream
    `protocolbuffers/go` plugin and **ship without any `*_Const` /
    `AsConst()`**. If you import a WKT in your own proto and leave its Go
-   package out of `exclude_packages`, generated code will reference e.g.
-   `timestamppb.Timestamp_Const` and call `.AsConst()` on a
-   `*timestamppb.Timestamp`, which will not compile.
+   package out of `exclude_packages`, the generated `_Const` interface
+   will declare a getter returning e.g. `timestamppb.Timestamp_Const` —
+   a type that does not exist — and the file will not compile.
 
 **Rule of thumb:** for every WKT you import, add its Go import path to
 `exclude_packages` (e.g. `.../timestamppb`, `.../durationpb`,
@@ -510,7 +529,7 @@ exercises and how to regenerate them locally.
 
 | Component                      | Pinned to                                               |
 | ------------------------------ | ------------------------------------------------------- |
-| Go                             | 1.24.5 (for stdlib [`iter`](https://pkg.go.dev/iter))   |
+| Go                             | 1.23.0 (for stdlib [`iter`](https://pkg.go.dev/iter))   |
 | `google.golang.org/protobuf`   | v1.36.11                                                |
 | `buf.build/protocolbuffers/go` | v1.36.11 (kept in sync with the above)                  |
 | proto editions supported       | proto2 → edition 2024 (via `FEATURE_SUPPORTS_EDITIONS`) |
