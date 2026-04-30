@@ -19,6 +19,7 @@ import (
 // exposed via Const<Name> methods generated directly on *Address.
 type Address_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetStreet() string
 	GetCity() string
@@ -35,6 +36,14 @@ func (x *Address) AsConst() Address_Const {
 	return x
 }
 
+// IsNil reports whether x is nil. It lets callers test the
+// "no Address behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Address boxed into the Address_Const interface.
+func (x *Address) IsNil() bool {
+	return x == nil
+}
+
 // Person_Const is a read-only interface view of Person.
 //
 // *Person itself satisfies this interface: scalar / enum / bytes
@@ -43,6 +52,7 @@ func (x *Address) AsConst() Address_Const {
 // exposed via Const<Name> methods generated directly on *Person.
 type Person_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetName() string
 	GetAge() int32
@@ -62,6 +72,14 @@ var _ Person_Const = (*Person)(nil)
 // Person_Const, so the receiver is returned unchanged.
 func (x *Person) AsConst() Person_Const {
 	return x
+}
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no Person behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Person boxed into the Person_Const interface.
+func (x *Person) IsNil() bool {
+	return x == nil
 }
 
 func (x *Person) ConstHome() Address_Const {
@@ -96,6 +114,7 @@ func (x *Person) ConstContact() Person_Contact_Const {
 // exposed via Const<Name> methods generated directly on *Person_Contact.
 type Person_Contact_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetEmail() string
 	ConstPhones() goconst.Slice[string]
@@ -110,6 +129,14 @@ var _ Person_Contact_Const = (*Person_Contact)(nil)
 // Person_Contact_Const, so the receiver is returned unchanged.
 func (x *Person_Contact) AsConst() Person_Contact_Const {
 	return x
+}
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no Person_Contact behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Person_Contact boxed into the Person_Contact_Const interface.
+func (x *Person_Contact) IsNil() bool {
+	return x == nil
 }
 
 func (x *Person_Contact) ConstPhones() goconst.Slice[string] {

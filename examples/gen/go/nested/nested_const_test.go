@@ -10,7 +10,10 @@ import (
 )
 
 // Compile-time assertions: every generated struct must satisfy both its
-// *_Const interface and goconst.Constable[<Iface>].
+// *_Const interface and goconst.Constable[<Iface>]. *Message values are
+// also expected to satisfy goconst.DoNotCompare directly, since the
+// generator emits an IsNil() method on every message pointer type to
+// back the DoNotCompare contract.
 var (
 	_ Address_Const                           = (*Address)(nil).AsConst()
 	_ Person_Const                            = (*Person)(nil).AsConst()
@@ -18,6 +21,9 @@ var (
 	_ goconst.Constable[Address_Const]        = (*Address)(nil)
 	_ goconst.Constable[Person_Const]         = (*Person)(nil)
 	_ goconst.Constable[Person_Contact_Const] = (*Person_Contact)(nil)
+	_ goconst.DoNotCompare                    = (*Address)(nil)
+	_ goconst.DoNotCompare                    = (*Person)(nil)
+	_ goconst.DoNotCompare                    = (*Person_Contact)(nil)
 )
 
 func newPerson() *Person {
@@ -415,5 +421,157 @@ func TestPerson_Map_Zero(t *testing.T) {
 	}
 	if got := v.GetCity(); got != "" {
 		t.Errorf("AddressBook[99].GetCity(): got %q, want \"\"", got)
+	}
+}
+
+// TestPerson_TypedNil pins down the classic Go typed-nil behaviour at the
+// _Const boundary and documents it as an accepted, library-level contract
+// rather than a bug. It exists to prevent a future refactor from silently
+// changing the semantics that callers are expected to code against.
+//
+// Setup: a *Person with Home == nil. Then:
+//
+//   - p.GetHome() is a proto3 nil-safe getter returning a typed *Address;
+//     because the static return type is a concrete pointer, the caller's
+//     == nil comparison does agree with "no Home set" here.
+//
+//   - p.ConstHome() returns an Address_Const (interface). Go's implicit
+//     interface conversion boxes a typed (*Address)(nil) into a non-nil
+//     interface value (itab != nil, data == nil). The `view == nil`
+//     comparison therefore evaluates to false even though there is no
+//     Address behind it.
+//
+// The protoc-gen-go-const design deliberately trades this away for
+// nil-safe scalar reads — i.e. view.GetStreet() still returns "" rather
+// than panicking. Callers who need the "is there actually an Address"
+// signal must go through IsNil() instead of == nil; see TestPerson_IsNil.
+func TestPerson_TypedNil(t *testing.T) {
+	p := &Person{Name: "no-home"} // Home == nil
+
+	// Concrete-pointer getter from the generated .pb.go: comparison to
+	// nil does agree with "no Home set" here.
+	if p.GetHome() != nil {
+		t.Fatal("GetHome(): want nil for unset Home field")
+	}
+
+	// Const-view getter: interface boxing of a typed nil pointer.
+	home := p.ConstHome()
+	if home == nil {
+		t.Fatal("ConstHome() == nil: got true, want false (typed-nil view is != nil by design)")
+	}
+
+	// Nil-safe scalar read is still the whole point — this must not
+	// panic and must yield the zero value.
+	if got := home.GetStreet(); got != "" {
+		t.Errorf("ConstHome().GetStreet() on typed-nil view: got %q, want \"\"", got)
+	}
+
+	// The correct way to ask the question users usually mean by `== nil`.
+	if !home.IsNil() {
+		t.Error("ConstHome().IsNil() on unset Home: got false, want true")
+	}
+}
+
+// TestPerson_IsNil is the positive-side companion of TestPerson_TypedNil:
+// it fixes the contract IsNil() must satisfy across every flavour of
+// _Const view the library ships — message pointers (both alive and nil),
+// Slice (scalar and Constable element types), and Map (scalar and
+// Constable value types) — including the *Map2.Get miss sentinel and the
+// Slice.Zero / Map.Zero sentinels.
+func TestPerson_IsNil(t *testing.T) {
+	// --- live *Message: IsNil() == false, view != nil. -------------------
+	alive := newPerson().AsConst()
+	if alive.IsNil() {
+		t.Error("alive Person.IsNil(): got true, want false")
+	}
+	if alive.ConstHome().IsNil() {
+		t.Error("alive Person.ConstHome().IsNil(): got true, want false")
+	}
+
+	// --- unset child *Message: IsNil() == true, view != nil. -------------
+	noHome := (&Person{}).AsConst()
+	if noHome.IsNil() {
+		t.Error("alive-but-empty Person.IsNil(): got true, want false")
+	}
+	if !noHome.ConstHome().IsNil() {
+		t.Error("noHome.ConstHome().IsNil(): got false, want true")
+	}
+	// Typed-nil view must still be safely callable.
+	if got := noHome.ConstHome().GetStreet(); got != "" {
+		t.Errorf("noHome.ConstHome().GetStreet(): got %q, want \"\"", got)
+	}
+
+	// --- (*Person)(nil) at the root: AsConst() on nil receiver is safe
+	// (it is a plain "return x"), and IsNil() on the resulting view
+	// reports true.
+	var nilPerson *Person
+	nv := nilPerson.AsConst()
+	if !nv.IsNil() {
+		t.Error("(*Person)(nil).AsConst().IsNil(): got false, want true")
+	}
+
+	// --- Slice[T]: IsNil() reports empty/nil underlying slice. ------------
+	c := newPerson().AsConst()
+	if c.ConstTags().IsNil() {
+		t.Error("populated ConstTags().IsNil(): got true, want false")
+	}
+	if c.ConstPrevAddresses().IsNil() {
+		t.Error("populated ConstPrevAddresses().IsNil(): got true, want false")
+	}
+	emptySlice := (&Person{}).AsConst().ConstTags()
+	if !emptySlice.IsNil() {
+		t.Error("empty ConstTags().IsNil(): got false, want true")
+	}
+	emptySlice2 := (&Person{}).AsConst().ConstPrevAddresses()
+	if !emptySlice2.IsNil() {
+		t.Error("empty ConstPrevAddresses().IsNil(): got false, want true")
+	}
+
+	// --- Map[K, V]: IsNil() reports empty/nil underlying map. -------------
+	if c.ConstAttributes().IsNil() {
+		t.Error("populated ConstAttributes().IsNil(): got true, want false")
+	}
+	if c.ConstAddressBook().IsNil() {
+		t.Error("populated ConstAddressBook().IsNil(): got true, want false")
+	}
+	emptyMap := (&Person{}).AsConst().ConstAttributes()
+	if !emptyMap.IsNil() {
+		t.Error("empty ConstAttributes().IsNil(): got false, want true")
+	}
+	emptyMap2 := (&Person{}).AsConst().ConstAddressBook()
+	if !emptyMap2.IsNil() {
+		t.Error("empty ConstAddressBook().IsNil(): got false, want true")
+	}
+
+	// --- Zero() sentinels: for Constable projections the element is a
+	// typed-nil view, so IsNil() must report true. -----------------------
+	if !c.ConstPrevAddresses().Zero().IsNil() {
+		t.Error("ConstPrevAddresses().Zero().IsNil(): got false, want true")
+	}
+	if !c.ConstAddressBook().Zero().IsNil() {
+		t.Error("ConstAddressBook().Zero().IsNil(): got false, want true")
+	}
+
+	// --- _Map2.Get on a miss must return a view for which IsNil() is
+	// true and subsequent scalar getters are still safe. -----------------
+	m := c.ConstAddressBook()
+	miss, ok := m.Get(99)
+	if ok {
+		t.Fatal("AddressBook[99]: ok=true, want false")
+	}
+	if !miss.IsNil() {
+		t.Error("AddressBook[99].IsNil(): got false, want true")
+	}
+	if got := miss.GetCity(); got != "" {
+		t.Errorf("AddressBook[99].GetCity(): got %q, want \"\"", got)
+	}
+
+	// --- Alive hit: IsNil() must be false. -------------------------------
+	hit, ok := m.Get(1)
+	if !ok {
+		t.Fatal("AddressBook[1]: ok=false, want true")
+	}
+	if hit.IsNil() {
+		t.Error("AddressBook[1].IsNil(): got true, want false")
 	}
 }

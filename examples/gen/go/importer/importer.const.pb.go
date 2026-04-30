@@ -22,6 +22,7 @@ import (
 // exposed via Const<Name> methods generated directly on *Envelope.
 type Envelope_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetId() string
 	ConstAddr() nested.Address_Const
@@ -41,6 +42,14 @@ var _ Envelope_Const = (*Envelope)(nil)
 // Envelope_Const, so the receiver is returned unchanged.
 func (x *Envelope) AsConst() Envelope_Const {
 	return x
+}
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no Envelope behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Envelope boxed into the Envelope_Const interface.
+func (x *Envelope) IsNil() bool {
+	return x == nil
 }
 
 func (x *Envelope) ConstAddr() nested.Address_Const {

@@ -32,6 +32,52 @@ import (
 	"slices"
 )
 
+// DoNotCompare is a marker interface embedded into every read-only view
+// exported by this package (and into every Message_Const interface emitted
+// by protoc-gen-go-const). Its sole purpose is to make a common footgun
+// syntactically visible at the call site:
+//
+//	// Wrong: always false under our nil-safe miss contract for
+//	// Constable projections (typed-nil view, not a nil interface).
+//	if p.ConstHome() == nil { ... }
+//
+//	// Right: use the exported predicate.
+//	if p.ConstHome().IsNil() { ... }
+//
+// Mechanically, [Slice], [Map], and every generated Message_Const
+// interface embed DoNotCompare, so a forgotten "== nil" check on the
+// interface continues to compile (Go permits comparing any interface
+// to the untyped nil literal) but the reader at least sees an explicit
+// IsNil() affordance on the type. The nil question is answered by the
+// IsNil() method instead, which is evaluated against the *concrete*
+// dynamic type: for [Slice] / [Map] it reports whether the underlying
+// slice / map is nil or empty; for generated Message_Const views it
+// reports whether the receiving pointer is nil.
+//
+// Why this matters: [NewSlice2] / [NewMap2] (and every generated
+// Const<Message>() getter) box a concrete *Message pointer into an
+// interface value. A nil *Message boxed into an interface is a classic
+// Go typed-nil: the interface is NOT == nil even though the underlying
+// pointer is. Scalar / enum / bytes getters remain safe to call — that
+// is the whole point of the nil-safe read guarantee this library makes —
+// but naive existence checks via `iface == nil` silently lie. IsNil()
+// exists precisely to answer that question correctly.
+type DoNotCompare interface {
+	// IsNil reports whether the underlying value is absent.
+	//
+	// For a generated Message_Const view this is equivalent to the
+	// concrete pointer being nil. For [Slice] / [Map] it reports that
+	// the underlying collection has no elements to iterate over — a nil
+	// slice, an empty slice, a nil map, and an empty map all report
+	// true, matching the "nothing to read" reading of the method name.
+	//
+	// Prefer IsNil() over comparing the interface value to the untyped
+	// nil literal: the interface comparison is almost always false under
+	// this library's typed-nil / miss-safe contracts, whereas IsNil()
+	// agrees with the caller's intuition.
+	IsNil() bool
+}
+
 // Slice is a read-only view over a repeated protobuf field of element type T.
 //
 // The value is cheap to pass around (a named slice type, no struct wrapper)
@@ -46,6 +92,11 @@ import (
 // printing the underlying []T directly — no extra "Slice[...]" wrapper —
 // so debug logging does not have to go through slices.Collect first.
 type Slice[T any] interface {
+	// DoNotCompare is embedded as a reader-facing cue that Slice values
+	// should not be compared to the untyped nil literal; use IsNil()
+	// instead. See the DoNotCompare docs for background.
+	DoNotCompare
+
 	// Len returns the number of elements in the underlying slice.
 	Len() int
 	// At returns the element at index i. It panics with an out-of-range
@@ -95,6 +146,11 @@ type Slice[T any] interface {
 // printing the underlying map[K]V directly — no extra "Map[...]" wrapper
 // — so debug logging does not have to go through maps.Collect first.
 type Map[K comparable, V any] interface {
+	// DoNotCompare is embedded as a reader-facing cue that Map values
+	// should not be compared to the untyped nil literal; use IsNil()
+	// instead. See the DoNotCompare docs for background.
+	DoNotCompare
+
 	// Len returns the number of entries in the underlying map.
 	Len() int
 	// Get returns the value associated with key k and true if present,
@@ -186,6 +242,7 @@ func (c _Slice[T]) At(i int) T             { return c[i] }
 func (c _Slice[T]) All() iter.Seq2[int, T] { return slices.All(c) }
 func (c _Slice[T]) Values() iter.Seq[T]    { return slices.Values(c) }
 func (c _Slice[T]) Zero() T                { var z T; return z }
+func (c _Slice[T]) IsNil() bool            { return len(c) == 0 }
 
 type _Slice2[T any, E Constable[T]] []E
 
@@ -213,6 +270,7 @@ func (c _Slice2[T, E]) Zero() T {
 	var z E
 	return z.AsConst()
 }
+func (c _Slice2[T, E]) IsNil() bool { return len(c) == 0 }
 
 type _Map[K comparable, V any] map[K]V
 
@@ -229,6 +287,7 @@ func (c _Map[K, V]) All() iter.Seq2[K, V] { return maps.All(c) }
 func (c _Map[K, V]) Keys() iter.Seq[K]    { return maps.Keys(c) }
 func (c _Map[K, V]) Values() iter.Seq[V]  { return maps.Values(c) }
 func (c _Map[K, V]) Zero() V              { var z V; return z }
+func (c _Map[K, V]) IsNil() bool          { return len(c) == 0 }
 
 type _Map2[K comparable, V any, E Constable[V]] map[K]E
 
@@ -271,6 +330,7 @@ func (c _Map2[K, V, E]) Zero() V {
 	var z E
 	return z.AsConst()
 }
+func (c _Map2[K, V, E]) IsNil() bool { return len(c) == 0 }
 
 // String implementations for debug-friendly printing.
 //

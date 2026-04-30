@@ -108,7 +108,12 @@ func (x *Envelope) ConstByTag() goconst.Map[string, Address_Const] {
 root package (see [goconst.go](goconst.go)) and offer:
 
 ```go
+type DoNotCompare interface {
+    IsNil() bool             // typed-nil-safe presence check; see "Typed-nil pitfall" below
+}
+
 type Slice[T any] interface {
+    DoNotCompare
     Len() int
     At(i int) T
     All() iter.Seq2[int, T]   // for i, v := range s.All()
@@ -117,6 +122,7 @@ type Slice[T any] interface {
 }
 
 type Map[K comparable, V any] interface {
+    DoNotCompare
     Len() int
     Get(k K) (V, bool)
     Has(k K) bool
@@ -151,6 +157,62 @@ func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V]
 so the plugin only has to emit a **one-line companion getter** per
 message / repeated / map field — *Message itself satisfies its _Const
 interface, so no wrapper type is generated.
+
+### Typed-nil pitfall and `IsNil()`
+
+Every `Message_Const` emitted by this plugin is a Go *interface*, and
+everything that returns one — the `AsConst()` cast, the singular-message
+`ConstHome()` companion, `Slice[T_Const].At(i)`, `Map[K, V_Const].Get(k)`,
+`Slice.Values()` / `Map.Values()` iterators, `Slice.Zero()` /
+`Map.Zero()`, and so on — always wraps a concrete `*Message` pointer into
+an interface value. That introduces the classic Go **typed-nil trap**: a
+`(*Address)(nil)` boxed into an `Address_Const` is an interface value
+whose itab is non-nil and whose data word is nil, so `view == nil`
+evaluates to **`false`** — even though semantically there is no Address
+behind the view.
+
+This is a *language-level* fact, not a bug in this library. The library
+deliberately leans into it to preserve the nil-safe-read guarantee:
+because a typed-nil `*Address` still answers every scalar / enum /
+`bytes` getter with the zero value (proto3 generates those to be nil-
+receiver-safe), callers can chain `view.GetStreet()` without a
+preceding nil check and get `""` on a missing field instead of a panic.
+Trade-off: `view == nil` is **not** the right way to spell "is there
+actually a value here?".
+
+To make the correct spelling discoverable at the type level,
+`goconst.DoNotCompare` is a tiny marker interface that exposes an
+`IsNil() bool` method; **every** `Slice`, every `Map`, and every
+generated `Message_Const` embeds it. The generator emits a matching
+`func (x *Message) IsNil() bool { return x == nil }` on every message
+pointer, and `Slice` / `Map` implementations report whether the
+underlying slice / map has no elements.
+
+```go
+// ✗ Wrong: typed-nil views are != nil by design.
+if p.ConstHome() == nil { ... }
+
+// ✓ Right: IsNil() is evaluated against the concrete dynamic type
+//   and returns what the caller actually meant.
+if p.ConstHome().IsNil() {
+    // no Home set — fall back, skip, log, ...
+} else {
+    use(p.ConstHome().GetStreet())
+}
+
+// For repeated / map fields, IsNil() doubles as an "empty?" predicate —
+// a nil slice, an empty slice, a nil map and an empty map all report true.
+if !envelope.ConstHistory().IsNil() {
+    for _, h := range envelope.ConstHistory().All() { ... }
+}
+
+// The Map.Get miss sentinel — and the Slice/Map Zero() sentinel for
+// Constable projections — are typed-nil views, so IsNil() returns true
+// while scalar getters on the view still yield the zero value.
+v, ok := m.Get(key)
+if v.IsNil() { /* equivalent to !ok for Constable projections */ }
+_ = v.GetCity() // always safe, with or without the IsNil() check
+```
 
 ### Miss-safe defaults: `Zero()` and `Map.Get`
 

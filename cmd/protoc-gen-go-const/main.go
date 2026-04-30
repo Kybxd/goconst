@@ -181,12 +181,16 @@ func (x *Generator) protocVersion() string {
 // Core emission
 // ---------------------------------------------------------------------------
 
-// genMessageConstAPI emits, for one message, the triplet that makes up the
-// "direct" _Const shape:
+// genMessageConstAPI emits, for one message, the full set of declarations
+// that make up the "direct" _Const shape:
 //
-//  1. The Message_Const interface, listing every field as either its
-//     concrete getter (scalars / enums / bytes / excluded-package messages)
-//     or a Const<Name> companion (non-excluded message / repeated / map).
+//  1. The Message_Const interface. It embeds proto.Message (so every
+//     _Const is also a proto.Message) and goconst.DoNotCompare (so every
+//     _Const exposes an IsNil() predicate at the type level, steering
+//     callers away from the typed-nil `view == nil` footgun). It then
+//     lists every field as either its concrete getter (scalars / enums /
+//     bytes / excluded-package messages) or a Const<Name> companion
+//     (non-excluded message / repeated / map).
 //  2. A compile-time assertion `var _ Message_Const = (*Message)(nil)` so
 //     that dropping a field on the proto side surfaces as a build error
 //     rather than an interface-not-implemented runtime surprise.
@@ -194,8 +198,13 @@ func (x *Generator) protocVersion() string {
 //     it is a no-op cast (`return x`) — its sole purpose is readability
 //     at call sites and satisfying goconst.Constable so that *Message can
 //     be fed into goconst.NewSlice2 / NewMap2 by parent messages.
-//  4. One Const<Name> method per field that needs a companion getter.
-//  5. Recursion into nested (non-map-entry) messages, so that a nested
+//  4. The IsNil() method, declared on *Message itself. It is the concrete
+//     witness for the DoNotCompare interface embedded in Message_Const and
+//     returns `x == nil` against the concrete receiver — which, unlike
+//     the interface-level `view == nil`, reports the answer the caller
+//     usually means.
+//  5. One Const<Name> method per field that needs a companion getter.
+//  6. Recursion into nested (non-map-entry) messages, so that a nested
 //     Address or Contact type emits its own _Const API in the same file.
 func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g := x.g()
@@ -219,6 +228,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("// exposed via Const<Name> methods generated directly on *", msgName, ".")
 	g.P("type ", msgName, "_Const interface {")
 	g.P(protoPackage.Ident("Message"))
+	g.P(goconstPackage.Ident("DoNotCompare"))
 	g.P()
 	for _, field := range message.Fields {
 		if x.fieldNeedsConstSuffix(field) {
@@ -254,6 +264,22 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("// ", msgName, "_Const, so the receiver is returned unchanged.")
 	g.P("func (x *", msgName, ") AsConst() ", msgName, "_Const {")
 	g.P("return x")
+	g.P("}")
+	g.P()
+
+	// IsNil satisfies goconst.DoNotCompare. It is the exported nil-check
+	// hook: comparing a *_Const interface value against the untyped nil
+	// literal is almost always wrong under the direct-style scheme (a
+	// nil *Message boxed into the interface yields a typed-nil iface
+	// value that is != nil yet whose scalar getters still return zero
+	// values), so the generator emits this method on *Message itself
+	// and asks readers to use it instead.
+	g.P("// IsNil reports whether x is nil. It lets callers test the")
+	g.P("// \"no ", msgName, " behind this view\" condition without falling")
+	g.P("// into the typed-nil trap that `view == nil` would cause on a")
+	g.P("// *", msgName, " boxed into the ", msgName, "_Const interface.")
+	g.P("func (x *", msgName, ") IsNil() bool {")
+	g.P("return x == nil")
 	g.P("}")
 	g.P()
 

@@ -7,6 +7,7 @@
 package oneof
 
 import (
+	goconst "github.com/Kybxd/goconst"
 	nested "github.com/Kybxd/goconst/examples/gen/go/nested"
 	proto "google.golang.org/protobuf/proto"
 )
@@ -19,6 +20,7 @@ import (
 // exposed via Const<Name> methods generated directly on *Event.
 type Event_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetId() string
 	GetNote() string
@@ -34,6 +36,14 @@ var _ Event_Const = (*Event)(nil)
 // Event_Const, so the receiver is returned unchanged.
 func (x *Event) AsConst() Event_Const {
 	return x
+}
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no Event behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *Event boxed into the Event_Const interface.
+func (x *Event) IsNil() bool {
+	return x == nil
 }
 
 func (x *Event) ConstLocation() nested.Address_Const {

@@ -7,6 +7,7 @@
 package scalar
 
 import (
+	goconst "github.com/Kybxd/goconst"
 	proto "google.golang.org/protobuf/proto"
 )
 
@@ -18,6 +19,7 @@ import (
 // exposed via Const<Name> methods generated directly on *AllScalars.
 type AllScalars_Const interface {
 	proto.Message
+	goconst.DoNotCompare
 
 	GetFBool() bool
 	GetFInt32() int32
@@ -48,4 +50,12 @@ var _ AllScalars_Const = (*AllScalars)(nil)
 // AllScalars_Const, so the receiver is returned unchanged.
 func (x *AllScalars) AsConst() AllScalars_Const {
 	return x
+}
+
+// IsNil reports whether x is nil. It lets callers test the
+// "no AllScalars behind this view" condition without falling
+// into the typed-nil trap that `view == nil` would cause on a
+// *AllScalars boxed into the AllScalars_Const interface.
+func (x *AllScalars) IsNil() bool {
+	return x == nil
 }
