@@ -214,6 +214,11 @@ if v.IsNil() { /* equivalent to !ok for Constable projections */ }
 _ = v.GetCity() // always safe, with or without the IsNil() check
 ```
 
+Because the correct spelling (`IsNil()` instead of `== nil`) is a rule
+no type system can enforce on its own, this repo ships a small
+go/analysis linter that flags the wrong spelling at compile time — see
+[Static check: `cmd/nilcompare`](#static-check-cmdnilcompare) below.
+
 ### Miss-safe defaults: `Zero()` and `Map.Get`
 
 `goconst.NewSlice2` / `NewMap2` project every element through its
@@ -374,6 +379,80 @@ files side by side:
 * `foo.pb.go`       — standard protobuf Go structs (from `protocolbuffers/go`)
 * `foo.const.pb.go` — `*_Const` read-only interface views (from this plugin)
 
+## Static check: `cmd/nilcompare`
+
+`cmd/nilcompare` is a standalone [go/analysis] linter that rejects the
+spelling the [typed-nil pitfall](#typed-nil-pitfall-and-isnil) warns
+about at compile time:
+
+```go
+// diagnostic + auto-fix: use IsNil() instead
+if p.ConstHome() == nil { ... }     // ✗ want `... use IsNil() instead`
+if envelope.ConstHistory() != nil {} // ✗ want `... use !IsNil() instead`
+switch view { case nil: ... }        // ✗ want `... use IsNil() in an if`
+
+// fine — concrete pointers behave as you expect
+if (*pb.Person)(nil) == nil { ... }  // ✓
+// fine — type switches ask the dynamic-type question, not the value question
+switch v.(type) { case nil: ... }    // ✓
+```
+
+Matching is **nominal** rather than structural: an interface is flagged
+only if its declaration transitively embeds `goconst.DoNotCompare` via
+an `EmbeddedType` chain. Interfaces that merely happen to declare an
+`IsNil() bool` method on their own are *not* flagged, so custom types
+that coincidentally share the shape are left alone.
+
+Every reported diagnostic carries a machine-applicable `SuggestedFix`:
+`x == nil` rewrites to `x.IsNil()`, `x != nil` rewrites to
+`!x.IsNil()`. Switch-case uses of `case nil:` are reported without a
+fix (the correct rewrite depends on whether the author wanted an
+if/else chain), so they show up as manual TODOs.
+
+### Ways to run it
+
+```bash
+# 1. Standalone binary (go vet-compatible)
+go install github.com/Kybxd/goconst/cmd/nilcompare@latest
+nilcompare ./...
+# or, as a vet tool:
+go vet -vettool=$(which nilcompare) ./...
+
+# 2. Directly from source — no install needed
+go run github.com/Kybxd/goconst/cmd/nilcompare ./...
+```
+
+**golangci-lint v2 module plugin.** Register the plugin package in
+`.custom-gcl.yml` and enable it in `.golangci.yml`:
+
+```yaml
+# .custom-gcl.yml — build a custom golangci-lint binary that embeds the plugin
+version: v2.1.0
+name: golangci-lint-nilcompare
+destination: ./bin
+plugins:
+  - module: github.com/Kybxd/goconst
+    import: github.com/Kybxd/goconst/cmd/nilcompare/plugin
+    version: latest        # or pin to a tagged release / pseudo-version
+```
+
+```yaml
+# .golangci.yml — enable the plugin like any other linter
+linters-settings:
+  custom:
+    nilcompare:
+      type: module
+      description: forbid comparing DoNotCompare-bearing interfaces to nil
+linters:
+  enable:
+    - nilcompare
+```
+
+The analyzer is a no-op on packages that do not (transitively) import
+`github.com/Kybxd/goconst`, so enabling it repo-wide is cheap.
+
+[go/analysis]: https://pkg.go.dev/golang.org/x/tools/go/analysis
+
 ## Flag: `--exclude_packages`
 
 Comma/repeat-style flag listing Go import paths that should **not** get
@@ -409,7 +488,12 @@ Typical use cases:
 ```
 .
 ├── goconst.go                  # runtime Slice / Map interfaces (imported by generated code)
-├── cmd/protoc-gen-go-const/    # the plugin binary (package main)
+├── cmd/
+│   ├── protoc-gen-go-const/    # the protobuf plugin binary (package main)
+│   └── nilcompare/             # static-check linter for `view == nil` misuse
+│       ├── main.go             # singlechecker / go vet-compatible driver
+│       ├── analyzer/           # the go/analysis Analyzer + analysistest suite
+│       └── plugin/             # golangci-lint v2 module-plugin entrypoint
 ├── examples/                   # hand-crafted protos exercising every branch
 │   ├── proto/<leaf>/           # source .proto files
 │   ├── gen/go/<leaf>/          # generated .pb.go + .const.pb.go (checked in as golden)

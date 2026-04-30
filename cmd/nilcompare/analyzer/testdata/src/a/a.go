@@ -1,0 +1,79 @@
+package a
+
+import "goconst"
+
+// Direct directly embeds the marker.
+type Direct interface {
+	goconst.DoNotCompare
+	GetName() string
+}
+
+// Transitive embeds Direct, so it inherits the marker one level down.
+type Transitive interface {
+	Direct
+	GetAge() int32
+}
+
+// ChainedTwice embeds Transitive, exercising the "many layers of
+// embedding" case; types.Implements must still recognise it.
+type ChainedTwice interface {
+	Transitive
+}
+
+// Unrelated superficially resembles the marker (same method name and
+// signature) but does NOT embed goconst.DoNotCompare, so it must not
+// be flagged — the analyzer rejects structural look-alikes.
+type Unrelated interface {
+	IsNil() bool
+	GetName() string
+}
+
+// Impl is a concrete pointer type with an IsNil method. Comparing a
+// concrete pointer to nil is always legitimate (the generated IsNil
+// method body itself does `return x == nil`) and must not be flagged.
+type Impl struct{}
+
+func (x *Impl) IsNil() bool     { return x == nil }
+func (x *Impl) GetName() string { return "" }
+
+func useBinary(d Direct, t Transitive, c ChainedTwice, u Unrelated, p *Impl) {
+	// --- positives: direct marker --------------------------------------
+	_ = d == nil // want `comparing a DoNotCompare-bearing interface value to nil is almost always false; use IsNil\(\) instead`
+	_ = d != nil // want `comparing a DoNotCompare-bearing interface value to nil is almost always true; use !IsNil\(\) instead`
+	_ = nil == d // want `.*false.*IsNil\(\).*`
+	_ = nil != d // want `.*true.*IsNil\(\).*`
+
+	// --- positives: transitive embedding -------------------------------
+	_ = t == nil // want `.*false.*`
+	_ = t != nil // want `.*true.*`
+	_ = c == nil // want `.*false.*`
+
+	// --- negatives: lookalike interface without the marker -------------
+	_ = u == nil
+	_ = u != nil
+
+	// --- negatives: concrete pointer — legitimate nil check ------------
+	_ = p == nil
+	_ = p != nil
+}
+
+func useSwitch(d Direct, u Unrelated) {
+	switch d {
+	case nil: // want `switch case compares DoNotCompare-bearing interface to nil; use IsNil\(\) in an if instead`
+	default:
+	}
+
+	// Lookalike: not flagged.
+	switch u {
+	case nil:
+	default:
+	}
+
+	// Type switches are a different question (dynamic-type query) and
+	// must NOT be flagged even when the operand carries the marker.
+	var i interface{} = d
+	switch i.(type) {
+	case nil:
+	default:
+	}
+}

@@ -6,6 +6,12 @@
 # different path and therefore cannot collide with this pattern).
 /protoc-gen-go-const
 
+# Built binary of the nilcompare analyzer, produced by
+# `go build ./cmd/nilcompare`. Root-anchored for the same reason as above:
+# the rule matches the binary next to README.md, not the Go package
+# directory at cmd/nilcompare/.
+/nilcompare
+
 # Common Go build / test artifacts.
 *.test
 *.out
