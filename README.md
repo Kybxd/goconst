@@ -113,6 +113,7 @@ type Slice[T any] interface {
     At(i int) T
     All() iter.Seq2[int, T]   // for i, v := range s.All()
     Values() iter.Seq[T]      // slices.Collect(s.Values()), slices.Sorted(...)
+    Zero() T                  // miss-safe default; see "Miss-safe defaults" below
 }
 
 type Map[K comparable, V any] interface {
@@ -122,6 +123,7 @@ type Map[K comparable, V any] interface {
     All() iter.Seq2[K, V]     // for k, v := range m.All()
     Keys() iter.Seq[K]        // maps.Keys-shape, pipe into slices.Collect / Sorted
     Values() iter.Seq[V]      // maps.Values-shape, same idea
+    Zero() V                  // miss-safe default; see "Miss-safe defaults" below
 }
 ```
 
@@ -149,6 +151,60 @@ func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map[K, V]
 so the plugin only has to emit a **one-line companion getter** per
 message / repeated / map field — *Message itself satisfies its _Const
 interface, so no wrapper type is generated.
+
+### Miss-safe defaults: `Zero()` and `Map.Get`
+
+`goconst.NewSlice2` / `NewMap2` project every element through its
+`AsConst()` view, so the element type `T` is an **interface** (e.g.
+`Address_Const`) rather than a concrete pointer. That has one
+unpleasant corner: the *Go zero value of an interface is a nil
+interface*, and calling any method on it panics with the classic
+`invalid memory address or nil pointer dereference` — even though the
+same call on a nil `*Address` would have been safe thanks to protobuf's
+nil-receiver-friendly getters.
+
+To keep the "nil receiver is safe" guarantee through the `_Const`
+boundary, `Slice` and `Map` both expose a `Zero()` method and
+`_Map2.Get` leans on it for its miss branch.
+
+* **`Slice[T].Zero() T`** / **`Map[K, V].Zero() V`**
+  * For scalar element / value types: the ordinary Go zero value
+    (`""`, `0`, `false`, …).
+  * For `Constable` projections (the `NewSlice2` / `NewMap2` flavour):
+    a **typed-nil view** — an interface value whose itab is the
+    concrete message pointer type and whose data word is `nil`. The
+    interface comparison `v == nil` is therefore `false`, but every
+    scalar / enum / `bytes` getter on `v` safely returns the zero value
+    instead of panicking.
+* **`Map[K, V].Get(k)` on a miss** returns `(m.Zero(), false)`. The
+  second return value is the *authoritative* presence flag; the first
+  is deliberately chosen so that `v.GetX()` is always safe to call,
+  with or without a preceding `ok` check.
+
+Two recommended miss-safe patterns fall out of this:
+
+```go
+// A) With an iter.Seq-aware helper (e.g. github.com/samber/lo/it):
+//    pass Zero() as the fallback so the result is always a live view.
+addr := loi.FindOrElse(
+    s.ConstPrevAddresses().Values(),
+    s.ConstPrevAddresses().Zero(),
+    func(a Address_Const) bool { return a.GetZip() == "12345" },
+)
+_ = addr.GetCity() // safe even if no element matches
+
+// B) With a plain Map lookup: trust ok for presence, use v regardless.
+if v, ok := m.Get(key); ok {
+    use(v)
+} else {
+    _ = v.GetCity() // safe: v is a typed-nil view, not a nil interface
+}
+```
+
+Equivalently, a hand-rolled find over `Values()` / `All()` can use
+`s.Zero()` as its loop-local default without importing any third-party
+helper — this is exactly what `TestPerson_Slice_Zero` in
+`examples/gen/go/nested/nested_const_test.go` exercises.
 
 ### Debug printing
 

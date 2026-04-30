@@ -61,6 +61,23 @@ type Slice[T any] interface {
 	// [slices.Sorted], or into iter-aware third-party helpers such as
 	// github.com/samber/lo/it. Analogue of [slices.Values].
 	Values() iter.Seq[T]
+	// Zero returns the "absent" sentinel value for elements of type T.
+	//
+	// For scalar element types it is the ordinary Go zero value (e.g. ""
+	// or 0). For Constable projections — i.e. Slice values produced by
+	// [NewSlice2] whose T is a generated _Const interface — it is a
+	// typed-nil view: the returned interface is non-nil at the interface
+	// level but backed by a nil receiver, so every scalar / enum / bytes
+	// getter safely yields a zero value instead of panicking on a
+	// nil-interface method dispatch.
+	//
+	// Intended use: pass as the default to third-party helpers that would
+	// otherwise surface a bare "var zero T" on a miss, e.g.
+	//
+	//	// with github.com/samber/lo/it
+	//	addr := loi.FindOrElse(s.Values(), s.Zero(), pred)
+	//	_ = addr.GetCity() // safe even if pred never matches
+	Zero() T
 }
 
 // Map is a read-only view over a map protobuf field with key type K and
@@ -81,8 +98,11 @@ type Map[K comparable, V any] interface {
 	// Len returns the number of entries in the underlying map.
 	Len() int
 	// Get returns the value associated with key k and true if present,
-	// or the zero V and false otherwise — the same shape as the comma-ok
-	// form of a built-in map lookup.
+	// or [Map.Zero] and false otherwise — the same shape as the comma-ok
+	// form of a built-in map lookup. For Constable value projections
+	// (maps produced by [NewMap2]) the miss value is a typed-nil view,
+	// so calling scalar getters on it is safe; rely on the second return
+	// value as the authoritative presence flag.
 	Get(k K) (V, bool)
 	// Has reports whether key k is present in the underlying map.
 	Has(k K) bool
@@ -96,6 +116,22 @@ type Map[K comparable, V any] interface {
 	// Values returns a range-over-func iterator yielding just the values
 	// in unspecified order. Analogue of [maps.Values].
 	Values() iter.Seq[V]
+	// Zero returns the "absent" sentinel value for values of type V.
+	//
+	// For scalar value types it is the ordinary Go zero value. For
+	// Constable projections — i.e. Map values produced by [NewMap2] whose
+	// V is a generated _Const interface — it is a typed-nil view: the
+	// returned interface is non-nil at the interface level but backed by
+	// a nil receiver, so scalar getters on the view safely yield zero
+	// values instead of panicking.
+	//
+	// [Map.Get] uses the same sentinel in its miss branch, so
+	//
+	//	v, ok := m.Get(k)
+	//	_ = v.GetCity() // safe whether ok is true or false
+	//
+	// is panic-free for generated _Const value types.
+	Zero() V
 }
 
 // Constable is the constraint satisfied by any value that can be projected
@@ -149,6 +185,7 @@ func (c _Slice[T]) Len() int               { return len(c) }
 func (c _Slice[T]) At(i int) T             { return c[i] }
 func (c _Slice[T]) All() iter.Seq2[int, T] { return slices.All(c) }
 func (c _Slice[T]) Values() iter.Seq[T]    { return slices.Values(c) }
+func (c _Slice[T]) Zero() T                { var z T; return z }
 
 type _Slice2[T any, E Constable[T]] []E
 
@@ -172,6 +209,10 @@ func (c _Slice2[T, E]) Values() iter.Seq[T] {
 		}
 	}
 }
+func (c _Slice2[T, E]) Zero() T {
+	var z E
+	return z.AsConst()
+}
 
 type _Map[K comparable, V any] map[K]V
 
@@ -187,6 +228,7 @@ func (c _Map[K, V]) Has(k K) bool {
 func (c _Map[K, V]) All() iter.Seq2[K, V] { return maps.All(c) }
 func (c _Map[K, V]) Keys() iter.Seq[K]    { return maps.Keys(c) }
 func (c _Map[K, V]) Values() iter.Seq[V]  { return maps.Values(c) }
+func (c _Map[K, V]) Zero() V              { var z V; return z }
 
 type _Map2[K comparable, V any, E Constable[V]] map[K]E
 
@@ -194,8 +236,11 @@ func (c _Map2[K, V, E]) Len() int { return len(c) }
 func (c _Map2[K, V, E]) Get(k K) (V, bool) {
 	v, ok := c[k]
 	if !ok {
-		var zero V
-		return zero, false
+		// Return a typed-nil view instead of a bare "var zero V" (which
+		// would be a nil interface and panic on any method call). The
+		// second return value is the authoritative presence flag.
+		var zeroE E
+		return zeroE.AsConst(), false
 	}
 	return v.AsConst(), true
 }
@@ -221,6 +266,10 @@ func (c _Map2[K, V, E]) Values() iter.Seq[V] {
 			}
 		}
 	}
+}
+func (c _Map2[K, V, E]) Zero() V {
+	var z E
+	return z.AsConst()
 }
 
 // String implementations for debug-friendly printing.

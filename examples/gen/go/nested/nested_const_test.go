@@ -197,9 +197,15 @@ func TestPerson_MapMessage(t *testing.T) {
 	if ok {
 		t.Error("AddressBook[99]: ok=true, want false")
 	}
-	// Per NewMap2 contract, zero value for a missing key is an interface zero (nil).
-	if zero != nil {
-		t.Errorf("AddressBook[99] zero: got %v, want nil interface", zero)
+	// Per NewMap2 contract, the value returned on a miss is a typed-nil
+	// view: non-nil at the interface level so scalar getters are safe to
+	// call, while the authoritative presence flag is the second return
+	// value. See also TestPerson_Map_Zero.
+	if zero == nil {
+		t.Error("AddressBook[99] zero: got nil interface, want typed-nil view")
+	}
+	if got := zero.GetCity(); got != "" {
+		t.Errorf("AddressBook[99] zero.GetCity(): got %q, want \"\"", got)
 	}
 }
 
@@ -319,5 +325,95 @@ func BenchmarkNested_Map_GetHit(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		v, _ := m.Get(1)
 		benchNestedSink = v
+	}
+}
+
+// TestPerson_Slice_Zero exercises the Zero() method on every Slice flavour:
+//
+//   - Slice[scalar] (built via NewSlice) returns the plain Go zero value.
+//   - Slice[_ConstIface] (built via NewSlice2) returns a typed-nil view
+//     whose scalar getters are safe to call — the key property that makes
+//     Zero() usable as a default sentinel for third-party helpers like
+//     lo/it.FindOrElse without risking a nil-interface panic.
+func TestPerson_Slice_Zero(t *testing.T) {
+	c := newPerson().AsConst()
+
+	// Scalar Slice: Zero is the untyped string zero value.
+	if got := c.ConstTags().Zero(); got != "" {
+		t.Errorf("ConstTags().Zero(): got %q, want \"\"", got)
+	}
+
+	// Constable Slice: Zero is a non-nil typed-nil view, and every scalar
+	// getter on it must return the zero value without panicking — the
+	// same contract exercised in TestPerson_NilSingularMessage, but for
+	// the "miss" sentinel returned by Zero() instead of a nil struct
+	// field.
+	z := c.ConstPrevAddresses().Zero()
+	if z == nil {
+		t.Fatal("ConstPrevAddresses().Zero(): got nil interface, want typed-nil view")
+	}
+	if got := z.GetStreet(); got != "" {
+		t.Errorf("Zero().GetStreet(): got %q, want \"\"", got)
+	}
+	if got := z.GetCity(); got != "" {
+		t.Errorf("Zero().GetCity(): got %q, want \"\"", got)
+	}
+	if got := z.GetZip(); got != "" {
+		t.Errorf("Zero().GetZip(): got %q, want \"\"", got)
+	}
+
+	// Zero() is also a handy default when folding over Values() without
+	// an external helper. Here we locate the element with Zip == "12345"
+	// (missing) and fall back to Zero(), mirroring how a caller would use
+	// lo/it.FindOrElse(s.Values(), s.Zero(), pred) externally. The key
+	// point: the subsequent .GetCity() call does not panic.
+	s := c.ConstPrevAddresses()
+	found := s.Zero()
+	for _, a := range s.All() {
+		if a.GetZip() == "12345" {
+			found = a
+			break
+		}
+	}
+	if got := found.GetCity(); got != "" {
+		t.Errorf("Zero()-fallback .GetCity(): got %q, want \"\"", got)
+	}
+}
+
+// TestPerson_Map_Zero mirrors TestPerson_Slice_Zero for Map, and also
+// pins down the key guarantee of _Map2.Get on a miss: the returned value
+// is equal in spirit to m.Zero() — a typed-nil view — so callers can
+// safely invoke scalar getters on it without a nil-check, as long as
+// they treat the second return value as the authoritative presence flag.
+func TestPerson_Map_Zero(t *testing.T) {
+	c := newPerson().AsConst()
+
+	// Scalar Map: Zero is the untyped string zero value.
+	if got := c.ConstAttributes().Zero(); got != "" {
+		t.Errorf("ConstAttributes().Zero(): got %q, want \"\"", got)
+	}
+
+	m := c.ConstAddressBook()
+	z := m.Zero()
+	if z == nil {
+		t.Fatal("ConstAddressBook().Zero(): got nil interface, want typed-nil view")
+	}
+	if got := z.GetCity(); got != "" {
+		t.Errorf("Zero().GetCity(): got %q, want \"\"", got)
+	}
+
+	// Get on a missing key must return a view that behaves identically
+	// to Zero() — non-nil interface, scalar getters yield the zero
+	// value. This is the main regression-guard: a previous version
+	// returned a bare "var zero V" (nil interface) and would panic here.
+	v, ok := m.Get(99)
+	if ok {
+		t.Fatal("AddressBook[99]: ok=true, want false")
+	}
+	if v == nil {
+		t.Fatal("AddressBook[99]: got nil interface, want typed-nil view")
+	}
+	if got := v.GetCity(); got != "" {
+		t.Errorf("AddressBook[99].GetCity(): got %q, want \"\"", got)
 	}
 }
