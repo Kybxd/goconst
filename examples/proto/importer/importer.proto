@@ -5,12 +5,13 @@
 //   * a message from an excluded in-repo package (keeps the concrete
 //     *External and does not call AsConst on it), and
 //   * a message from a well-known-type package (google.protobuf.Timestamp)
-//     whose Go package is matched by the --exclude_packages glob
-//     `google.golang.org/protobuf/types/known/*`, so it is also treated as
-//     "concrete pointer, no AsConst" in singular / repeated / map positions.
-//     This doubles as the reason WKTs must be excluded today: they ship
-//     without any *_Const / AsConst of their own, and the glob lets one
-//     line cover every WKT subpackage at once.
+//     whose Go package is matched by the --exclude_packages doublestar
+//     glob `google.golang.org/protobuf/types/known/**`, so it is also
+//     treated as "concrete pointer, no AsConst" in singular / repeated /
+//     map positions. This doubles as the reason WKTs must be excluded
+//     today: they ship without any *_Const / AsConst of their own, and
+//     the recursive `**` glob lets one line cover every WKT subpackage
+//     (including nested ones) at once.
 syntax = "proto3";
 
 package importer;
@@ -27,8 +28,8 @@ message Envelope {
   map<string, external.External> ext_map = 5; // map of excluded-type values
 
   // WKT (google.protobuf.Timestamp): matched by the
-  // --exclude_packages=google.golang.org/protobuf/types/known/* glob, so
-  // references keep the concrete *timestamppb.Timestamp.
+  // --exclude_packages=google.golang.org/protobuf/types/known/** glob,
+  // so references keep the concrete *timestamppb.Timestamp.
   google.protobuf.Timestamp created_at = 6;
   repeated google.protobuf.Timestamp history = 7;
   map<string, google.protobuf.Timestamp> ts_map = 8;

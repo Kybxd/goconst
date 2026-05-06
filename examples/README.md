@@ -58,19 +58,20 @@ the emitted `*_Const` interface against the concrete `*Message`.
 ## Toggling `--exclude_packages`
 
 [`buf.gen.yaml`](buf.gen.yaml) ships with two `exclude_packages` entries
-enabled — one exact path, one glob:
+enabled — one exact path, one recursive glob:
 
 ```yaml
 - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
-- exclude_packages=google.golang.org/protobuf/types/known/*
+- exclude_packages=google.golang.org/protobuf/types/known/**
 ```
 
 Each entry is matched against a field's owning Go import path with
-[`path.Match`][path.Match] semantics, so the second line excludes
-**every** WKT subpackage (timestamppb, durationpb, anypb, wrapperspb, …)
-in one line.
+[doublestar][doublestar] (gitignore- / bash globstar-style) semantics, so
+the second line recursively excludes **every** WKT subpackage
+(timestamppb, durationpb, anypb, wrapperspb, …), including any nested
+subpackages, in one line.
 
-[path.Match]: https://pkg.go.dev/path#Match
+[doublestar]: https://github.com/bmatcuk/doublestar
 
 With both on you can verify (mainly in
 [`gen/go/importer/importer.const.pb.go`](gen/go/importer/importer.const.pb.go)):

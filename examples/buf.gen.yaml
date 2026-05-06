@@ -17,14 +17,17 @@ plugins:
       # Demonstrates --exclude_packages: any message whose generated Go import
       # path matches one of these patterns will NOT get a *_Const interface,
       # and references to it will keep the concrete *Type in the enclosing
-      # Const interfaces. Each entry is a path.Match glob, so wildcards like
-      # `*` and `?` are supported. Enabled by default below; comment a line
+      # Const interfaces. Each entry is a doublestar (gitignore- / bash
+      # globstar-style) glob: plain paths match exactly, `*` / `?` match
+      # within a single path segment, and a recursive `**` segment matches
+      # any number of subpackages. Enabled by default below; comment a line
       # out to see how generation looks without that exclusion.
       - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
       # Well-known types ship without any *_Const / AsConst of their own, so
       # they must be excluded explicitly — otherwise generated code would
       # call .AsConst() on e.g. *timestamppb.Timestamp and fail to build.
-      # The glob below covers every WKT subpackage (timestamppb, durationpb,
-      # anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line.
-      - exclude_packages=google.golang.org/protobuf/types/known/*
+      # The `**` glob below covers every WKT subpackage (timestamppb,
+      # durationpb, anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …)
+      # in one line, including any nested subpackages.
+      - exclude_packages=google.golang.org/protobuf/types/known/**
     strategy: all

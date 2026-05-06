@@ -382,9 +382,9 @@ plugins:
     out: gen/go
     opt:
       - paths=source_relative
-      # Optional, see "exclude_packages" below. Each entry is a path.Match
-      # glob, so the line below excludes every WKT subpackage at once.
-      # - exclude_packages=google.golang.org/protobuf/types/known/*
+      # Optional, see "exclude_packages" below. Each entry is a doublestar
+      # glob, so the line below recursively excludes every WKT subpackage.
+      # - exclude_packages=google.golang.org/protobuf/types/known/**
     strategy: all
 ```
 
@@ -477,23 +477,31 @@ The analyzer is a no-op on packages that do not (transitively) import
 
 Comma/repeat-style flag listing Go import path **glob patterns** that
 should **not** get `*_Const` views. Each entry is matched against the
-field's owning Go import path with [`path.Match`][path.Match] semantics,
-so plain paths still work as exact matches and `*` / `?` wildcards are
-available for bulk exclusions. When a field references a message from a
-matching package, the plugin keeps the concrete `*Type` in the enclosing
-`_Const` interface (and therefore emits no `Const<Name>` companion for it
-at all, since the signature already matches the concrete getter):
+field's owning Go import path with [doublestar][doublestar] (gitignore- /
+bash globstar-style) semantics:
+
+* a plain path matches exactly, so the legacy "list of Go import paths"
+  usage keeps working unchanged;
+* `*` / `?` match within a single `/`-separated path segment;
+* a recursive `**` segment matches any number of subpackages, including
+  nested ones — use this to bulk-exclude an entire subtree.
+
+When a field references a message from a matching package, the plugin
+keeps the concrete `*Type` in the enclosing `_Const` interface (and
+therefore emits no `Const<Name>` companion for it at all, since the
+signature already matches the concrete getter):
 
 ```yaml
 opt:
-  # Exact path — equivalent to the legacy "list of Go import paths" usage.
+  # Exact path — the legacy "list of Go import paths" usage.
   - exclude_packages=github.com/you/yourrepo/gen/go/proto/external
-  # Glob — covers every WKT subpackage (timestamppb, durationpb, anypb,
-  # wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line.
-  - exclude_packages=google.golang.org/protobuf/types/known/*
+  # Recursive glob — covers every WKT subpackage (timestamppb, durationpb,
+  # anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line,
+  # including any nested subpackages.
+  - exclude_packages=google.golang.org/protobuf/types/known/**
 ```
 
-[path.Match]: https://pkg.go.dev/path#Match
+[doublestar]: https://github.com/bmatcuk/doublestar
 
 Typical use cases:
 
@@ -508,9 +516,10 @@ Typical use cases:
    a type that does not exist — and the file will not compile.
 
 **Rule of thumb:** exclude every WKT package you import. The single
-glob `google.golang.org/protobuf/types/known/*` matches all of them
-(`.../timestamppb`, `.../durationpb`, `.../anypb`, `.../wrapperspb`,
-…) and is the recommended default for projects that touch any WKT.
+recursive glob `google.golang.org/protobuf/types/known/**` matches all
+of them (`.../timestamppb`, `.../durationpb`, `.../anypb`,
+`.../wrapperspb`, …, including any nested subpackages) and is the
+recommended default for projects that touch any WKT.
 
 ## Project layout
 
