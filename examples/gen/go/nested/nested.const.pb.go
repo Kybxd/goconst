@@ -12,11 +12,6 @@ import (
 )
 
 // Address_Const is a read-only interface view of Address.
-//
-// *Address itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *Address.
 type Address_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -24,32 +19,27 @@ type Address_Const interface {
 	GetStreet() string
 	GetCity() string
 	GetZip() string
+	Clone() *Address
 }
 
 var _ Address_Const = (*Address)(nil)
 
 // AsConst returns x as its read-only Address_Const view.
-//
-// This is a zero-allocation cast: *Address already implements
-// Address_Const, so the receiver is returned unchanged.
 func (x *Address) AsConst() Address_Const {
 	return x
 }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no Address behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *Address boxed into the Address_Const interface.
+// IsNil reports whether x is nil.
 func (x *Address) IsNil() bool {
 	return x == nil
 }
 
+// Clone returns a deep copy of x as a fresh, mutable *Address.
+func (x *Address) Clone() *Address {
+	return proto.Clone(x).(*Address)
+}
+
 // Person_Const is a read-only interface view of Person.
-//
-// *Person itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *Person.
 type Person_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -62,24 +52,24 @@ type Person_Const interface {
 	ConstAttributes() goconst.Map[string, string]
 	ConstAddressBook() goconst.Map[int64, Address_Const]
 	ConstContact() Person_Contact_Const
+	Clone() *Person
 }
 
 var _ Person_Const = (*Person)(nil)
 
 // AsConst returns x as its read-only Person_Const view.
-//
-// This is a zero-allocation cast: *Person already implements
-// Person_Const, so the receiver is returned unchanged.
 func (x *Person) AsConst() Person_Const {
 	return x
 }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no Person behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *Person boxed into the Person_Const interface.
+// IsNil reports whether x is nil.
 func (x *Person) IsNil() bool {
 	return x == nil
+}
+
+// Clone returns a deep copy of x as a fresh, mutable *Person.
+func (x *Person) Clone() *Person {
+	return proto.Clone(x).(*Person)
 }
 
 func (x *Person) ConstHome() Address_Const {
@@ -107,11 +97,6 @@ func (x *Person) ConstContact() Person_Contact_Const {
 }
 
 // Person_Contact_Const is a read-only interface view of Person_Contact.
-//
-// *Person_Contact itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *Person_Contact.
 type Person_Contact_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -119,24 +104,24 @@ type Person_Contact_Const interface {
 	GetEmail() string
 	ConstPhones() goconst.Slice[string]
 	ConstLocations() goconst.Map[string, Address_Const]
+	Clone() *Person_Contact
 }
 
 var _ Person_Contact_Const = (*Person_Contact)(nil)
 
 // AsConst returns x as its read-only Person_Contact_Const view.
-//
-// This is a zero-allocation cast: *Person_Contact already implements
-// Person_Contact_Const, so the receiver is returned unchanged.
 func (x *Person_Contact) AsConst() Person_Contact_Const {
 	return x
 }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no Person_Contact behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *Person_Contact boxed into the Person_Contact_Const interface.
+// IsNil reports whether x is nil.
 func (x *Person_Contact) IsNil() bool {
 	return x == nil
+}
+
+// Clone returns a deep copy of x as a fresh, mutable *Person_Contact.
+func (x *Person_Contact) Clone() *Person_Contact {
+	return proto.Clone(x).(*Person_Contact)
 }
 
 func (x *Person_Contact) ConstPhones() goconst.Slice[string] {

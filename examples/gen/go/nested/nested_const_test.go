@@ -4,6 +4,8 @@
 package nested
 
 import (
+	"maps"
+	"slices"
 	"testing"
 
 	goconst "github.com/Kybxd/goconst"
@@ -332,6 +334,318 @@ func BenchmarkNested_Map_GetHit(b *testing.B) {
 		v, _ := m.Get(1)
 		benchNestedSink = v
 	}
+}
+
+// ---- iteration-overhead benchmark matrix -----------------------------------
+//
+// One Benchmark per data shape, four sub-benchmarks per shape, all driven
+// through b.Run so a single `go test -bench=BenchmarkNested_Range -benchmem`
+// invocation produces the full 4×4 grid in one pass.
+//
+// Data shapes (rows):
+//
+//   1. scalar slice        []string                      ([]T,        NewSlice)
+//   2. struct slice        []*Address                    ([]*M,       NewSlice2)
+//   3. scalar-value map    map[string]string             (map[K]V,    NewMap)
+//   4. struct-value map    map[int64]*Address            (map[K]*M,   NewMap2)
+//
+// Iteration strategies (sub-benchmarks):
+//
+//   A. Raw       — `for ... range raw` against the proto-generated []T /
+//                  map[K]V field directly. Reference baseline.
+//   B. RawAll    — `for ... range slices.All(raw)` / `maps.All(raw)`.
+//                  Verifies the stdlib rangefunc fast-path: when the
+//                  generic helper is inlined and its returned func literal
+//                  is consumed in-place by `for range`, escape analysis
+//                  proves the closure doesn't escape and the loop runs
+//                  with zero allocations.
+//   C. LenAt /   — `for i := range s.Len() { _ = s.At(i) }` for slices,
+//      LenKeys     `for k := range m.Keys() { _ = m.Get(k) }` is *not*
+//                  used (Keys() is itself a rangefunc, see D); for maps
+//                  the index-style equivalent doesn't exist, so this
+//                  slot reuses the raw map but iterates via the goconst
+//                  view's Get on every key from the underlying map —
+//                  see the per-shape comment for the exact wiring.
+//   D. All       — `for ... range s.All()` / `m.All()` on the goconst
+//                  view. Hits the slow path: methods returning a
+//                  func literal don't get the same in-caller closure
+//                  outline that stdlib free functions enjoy, so the
+//                  closure escapes and each loop pays the rangefunc
+//                  protocol cost (a fixed handful of allocs/loop,
+//                  independent of element count).
+//
+// Why the four columns:
+//
+//   - Raw is the reference: anything we add must, at best, match it.
+//   - RawAll proves the rangefunc protocol *itself* is not the cost;
+//     when the compiler can inline the producer in place, the loop is
+//     allocation-free. (Verified via go build -gcflags=-m=2:
+//     "func literal does not escape" at the slices.All call site.)
+//   - LenAt / Get is the recommended idiom for goconst.Slice in tight
+//     loops — the Len/At/Get methods inline (cost well within budget,
+//     verified the same way), so this path matches Raw within noise
+//     and stays at zero allocs.
+//   - All is the ergonomic-but-pricier path. It is shipped because it
+//     composes naturally with iter.Seq consumers (slices.Collect,
+//     lo/it helpers, etc.), but its per-loop cost is non-zero today
+//     because the method-returning-closure form loses the in-caller
+//     outline that stdlib free functions get. The benchmark exists
+//     to (a) make that cost legible, (b) act as a regression canary
+//     when Go improves rangefunc lowering — when the All sub-bench
+//     drops to RawAll's numbers, that is a real Go-toolchain win
+//     worth recording.
+
+// BenchmarkNested_RangeScalarSlice covers []string (NewSlice). Body work
+// per element: read v, bump counter. The four strategies are equivalent
+// in observable behaviour; only the iteration mechanism varies.
+func BenchmarkNested_RangeScalarSlice(b *testing.B) {
+	p := newPerson()
+	s := p.AsConst().ConstTags()
+
+	b.Run("Raw", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, v := range p.Tags {
+				_ = v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("RawAll", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, v := range slices.All(p.Tags) {
+				_ = v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("LenAt", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for j := range s.Len() {
+				_ = s.At(j)
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("All", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, v := range s.All() {
+				_ = v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+}
+
+// BenchmarkNested_RangeStructSlice covers []*Address (NewSlice2). Body
+// work per element: read one scalar field on the (possibly typed-nil)
+// view. The All path additionally exercises the per-element AsConst
+// projection that NewSlice2 stamps onto every read.
+func BenchmarkNested_RangeStructSlice(b *testing.B) {
+	p := newPerson()
+	s := p.AsConst().ConstPrevAddresses()
+
+	b.Run("Raw", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, a := range p.PrevAddresses {
+				_ = a.GetStreet()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("RawAll", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, a := range slices.All(p.PrevAddresses) {
+				_ = a.GetStreet()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("LenAt", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for j := range s.Len() {
+				_ = s.At(j).GetStreet()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("All", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for _, a := range s.All() {
+				_ = a.GetStreet()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+}
+
+// BenchmarkNested_RangeScalarMap covers map[string]string (NewMap). Body
+// work per element: read k and v, bump counter.
+//
+// LenGet column note: a map has no integer index, so the closest
+// "index-style" idiom is to drive iteration off the underlying map's
+// own range and look each key back up via the goconst view's Get.
+// That doubles the per-element work (one native lookup + one Get
+// lookup), which is intentional — it captures what users actually
+// pay if they want the goconst Get semantics in a hot map loop.
+func BenchmarkNested_RangeScalarMap(b *testing.B) {
+	p := newPerson()
+	m := p.AsConst().ConstAttributes()
+
+	b.Run("Raw", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, v := range p.Attributes {
+				_, _ = k, v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("RawAll", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, v := range maps.All(p.Attributes) {
+				_, _ = k, v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("LenGet", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k := range p.Attributes {
+				v, _ := m.Get(k)
+				_, _ = k, v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("All", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, v := range m.All() {
+				_, _ = k, v
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+}
+
+// BenchmarkNested_RangeStructMap covers map[int64]*Address (NewMap2).
+// Body work per element: read one scalar field on the value-side view.
+// The All path exercises the per-value AsConst projection NewMap2 adds.
+func BenchmarkNested_RangeStructMap(b *testing.B) {
+	p := newPerson()
+	m := p.AsConst().ConstAddressBook()
+
+	b.Run("Raw", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, a := range p.AddressBook {
+				_ = k
+				_ = a.GetCity()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("RawAll", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, a := range maps.All(p.AddressBook) {
+				_ = k
+				_ = a.GetCity()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("LenGet", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k := range p.AddressBook {
+				a, _ := m.Get(k)
+				_ = k
+				_ = a.GetCity()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
+
+	b.Run("All", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var n int
+		for i := 0; i < b.N; i++ {
+			for k, a := range m.All() {
+				_ = k
+				_ = a.GetCity()
+				n++
+			}
+		}
+		benchNestedSink = n
+	})
 }
 
 // TestPerson_Slice_Zero exercises the Zero() method on every Slice flavour:

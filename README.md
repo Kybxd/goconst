@@ -19,6 +19,15 @@ For each message `Foo`, it emits:
   whose signature had to change (singular message → `T_Const`, `[]T` →
   `goconst.Slice[T]`, `map[K]V` → `goconst.Map[K,V]`), attached directly
   to `*Foo` in the generated `foo.const.pb.go`.
+* `func (x *Foo) Clone() *Foo` — escape hatch out of the read-only
+  view: returns a fresh, mutable deep copy of the underlying message
+  (delegates to [`proto.Clone`][protoclone]). Declared on `Foo_Const`
+  too, so callers holding only the interface can still copy. Returns
+  the **concrete** `*Foo` (not `Foo_Const`) on purpose: a copy you
+  cannot mutate would defeat the point of cloning, and you can always
+  re-wrap it via `clone.AsConst()` at zero cost.
+
+[protoclone]: https://pkg.go.dev/google.golang.org/protobuf/proto#Clone
 
 Repeated and map fields are returned through
 [`goconst.Slice`](goconst.go) / [`goconst.Map`](goconst.go) — small
@@ -69,11 +78,6 @@ import (
 )
 
 // Envelope_Const is a read-only interface view of Envelope.
-//
-// *Envelope itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *Envelope.
 type Envelope_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -82,25 +86,19 @@ type Envelope_Const interface {
 	ConstAddr() Address_Const
 	ConstHistory() goconst.Slice[Address_Const]
 	ConstByTag() goconst.Map[string, Address_Const]
+	Clone() *Envelope
 }
 
 var _ Envelope_Const = (*Envelope)(nil)
 
 // AsConst returns x as its read-only Envelope_Const view.
-//
-// This is a zero-allocation cast: *Envelope already implements
-// Envelope_Const, so the receiver is returned unchanged.
-func (x *Envelope) AsConst() Envelope_Const {
-	return x
-}
+func (x *Envelope) AsConst() Envelope_Const { return x }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no Envelope behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *Envelope boxed into the Envelope_Const interface.
-func (x *Envelope) IsNil() bool {
-	return x == nil
-}
+// IsNil reports whether x is nil.
+func (x *Envelope) IsNil() bool { return x == nil }
+
+// Clone returns a deep copy of x as a fresh, mutable *Envelope.
+func (x *Envelope) Clone() *Envelope { return proto.Clone(x).(*Envelope) }
 
 func (x *Envelope) ConstAddr() Address_Const {
 	return x.GetAddr()
@@ -343,6 +341,108 @@ Key design points:
   measure ~0.65 ns / 0 allocs for the cast, 0 allocs for singular
   message-field access, and ~3.5× faster map look-ups versus a wrapper-
   struct design that allocates a new view on every call.
+* **`Clone()` escape hatch**: every `Message_Const` declares
+  `Clone() *Message`, implemented on `*Message` as
+  `return proto.Clone(x).(*Message)`. It is the canonical way to leave
+  the read-only world — e.g. when a callee that received a `_Const`
+  view needs an independent, mutable copy to hand to a writer-style
+  API or to retain past the lifetime of the source. The return type is
+  the concrete `*Message` (not `Message_Const`) by design: a copy that
+  the caller cannot mutate would defeat the purpose, and the result
+  can be re-wrapped via `clone.AsConst()` at zero cost when only a
+  read-only handoff is needed downstream.
+
+### Iteration performance: `Slice` / `Map.All()` vs raw range
+
+`Slice[T].All()` / `Map[K, V].All()` return an `iter.Seq2` so that callers
+can write the natural `for k, v := range view.All()` shape. That ergonomic
+wrapper is **not free** — it carries a fixed, one-time setup cost on
+every `All()` call, regardless of how many elements you then range over.
+The two indexed-access escape hatches (`Len()` + `At(i)` for slices,
+`Len()` + `Get(k)` for maps) keep the read-only contract while staying
+fully zero-allocation.
+
+Measured on `examples/gen/go/nested` (`go test -bench`, AMD EPYC 9754,
+Go 1.23, 3-element fixtures), four iteration strategies × four container
+shapes:
+
+| Container                      | `for range raw`     | `for range stdlib.All(raw)` | `Len()` + `At/Get`    | `view.All()`           |
+| ------------------------------ | ------------------- | --------------------------- | --------------------- | ---------------------- |
+| `[]string` (NewSlice)          | 2.0 ns / 0 allocs   | 2.0 ns / 0 allocs           | 9.2 ns / 0 allocs     | **78 ns / 3 allocs**   |
+| `[]*Address` (NewSlice2)       | 1.6 ns / 0 allocs   | 1.6 ns / 0 allocs           | 12.2 ns / 0 allocs    | **79 ns / 3 allocs**   |
+| `map[string]string` (NewMap)   | 49 ns / 0 allocs    | 53 ns / 0 allocs            | 68 ns / 0 allocs      | **125 ns / 3 allocs**  |
+| `map[int64]*Address` (NewMap2) | 49 ns / 0 allocs    | 51 ns / 0 allocs            | 65 ns / 0 allocs      | **128 ns / 3 allocs**  |
+
+#### Why `view.All()` allocates 3 times
+
+Look at the implementation in [`goconst.go`](goconst.go):
+
+```go
+func (c _Slice[T]) All() iter.Seq2[int, T] { return slices.All(c) }
+func (c _Map[K, V]) All() iter.Seq2[K, V]  { return maps.All(c) }
+// _Slice2 / _Map2 wrap an explicit `func(yield ...) { ... }` literal that
+// projects each element through AsConst() before yielding it.
+```
+
+The free functions `slices.All` / `maps.All` are themselves zero-alloc
+when used directly (`for _, v := range slices.All(p.Tags)` inlines the
+returned closure into the caller's stack frame, as the **`for range
+stdlib.All(raw)`** column above shows). What costs the 3 allocs is
+forwarding the closure across a **generic method boundary**: by the time
+the compiler is done instantiating `_Slice[T].All`, the inliner has
+already given up on flowing the func literal through, so the closure
+environment, the `iter.Seq2[…]` funcval header, and the wrapper
+trampoline all escape. For `_Slice2` / `_Map2` the body is an explicit
+projecting closure, which has the same fate for the same reason.
+
+Crucially, **all three allocations are O(1) in the container length**:
+each one is a small fixed-size header (closure env capturing the slice /
+map descriptor, plus a couple of cursor words). `yield` itself is a
+caller-frame value, so the per-element body of the loop runs zero-alloc
+and the same 3 allocs / 80 B (slice) or 56 B (map) are observed whether
+the container holds 1 element or 4096.
+
+#### Recommendation
+
+* **Default to `for k, v := range view.All()`.** The setup cost is
+  ~80 ns and 3 allocs *per loop*, not per element. For a hot loop that
+  iterates a few-element slice or map at human-request frequencies (RPC
+  handlers, render paths, business logic), this is well under the noise
+  floor of the surrounding work, and the readability win — same
+  range-over-func shape as native slices and maps — is worth it.
+* **Switch to `Len()` + `At(i)` / `Get(k)` only on the hot path.**
+  Profile-guided rule of thumb: if a single goroutine is spinning the
+  same `view.All()` loop millions of times per second over short
+  containers (caches, per-tick game state, codec inner loops, tight
+  reduction phases), the 3 allocs / call become visible in GC pause
+  budgets long before the 80 ns / call shows up in CPU. Rewriting that
+  one loop as
+  ```go
+  for i := range s.Len() {
+      use(s.At(i))
+  }
+  // or, for maps, drive iteration off the underlying map and look each
+  // key back up via the goconst view to keep its Get semantics:
+  for k := range rawMap {
+      v, _ := m.Get(k)
+      use(k, v)
+  }
+  ```
+  preserves the same read-only contract at zero allocation and ~10×
+  lower per-call overhead.
+* **Don't bypass the view to chase ns.** The direct-range-over-`raw`
+  numbers in column one are listed for calibration only — using them in
+  application code reintroduces the mutability that `_Const` exists to
+  forbid. Stick with `view.All()` or the `Len()`/`At`/`Get` escape hatch.
+
+The full benchmark matrix lives in
+[`examples/gen/go/nested/nested_const_test.go`](examples/gen/go/nested/nested_const_test.go)
+(`BenchmarkNested_RangeScalarSlice` / `…StructSlice` / `…ScalarMap` /
+`…StructMap`); reproduce with
+
+```bash
+go test -bench='^BenchmarkNested_Range' -benchmem ./examples/gen/go/nested/...
+```
 
 ## Installation & wiring
 

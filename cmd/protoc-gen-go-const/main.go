@@ -276,12 +276,11 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// Fields whose signature differs (single messages projected into a
 	// _Const view, repeated/map fields projected into goconst.Slice / Map)
 	// are exposed through a Const<Name> companion, emitted further down.
+	//
+	// The emitted godoc is intentionally a single-line summary; the
+	// "why" (typed-nil trap, satisfies-via-concrete *Message, etc.) lives
+	// in the README so generated files stay diff-friendly.
 	g.P("// ", msgName, "_Const is a read-only interface view of ", msgName, ".")
-	g.P("//")
-	g.P("// *", msgName, " itself satisfies this interface: scalar / enum / bytes")
-	g.P("// getters are inherited from the concrete type unchanged, and the")
-	g.P("// message / repeated / map getters whose signatures differ are")
-	g.P("// exposed via Const<Name> methods generated directly on *", msgName, ".")
 	g.P("type ", msgName, "_Const interface {")
 	g.P(protoPackage.Ident("Message"))
 	g.P(goconstPackage.Ident("DoNotCompare"))
@@ -299,6 +298,12 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 		}
 		g.P("Get", field.GoName, "() ", x.fieldGoType(field))
 	}
+	// Clone returns a fresh, mutable deep copy of the underlying *Message
+	// — the standard "escape hatch" out of the read-only view. The return
+	// type is the concrete *Message (not Message_Const) on purpose: a
+	// copy that the caller cannot mutate would be useless, and a *Message
+	// can still be re-wrapped via AsConst() if desired.
+	g.P("Clone() *", g.QualifiedGoIdent(message.GoIdent))
 	g.P("}")
 	g.P()
 
@@ -314,10 +319,9 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	//   - it communicates intent ("I want the read-only view");
 	//   - it gives *Message a Constable[Message_Const] witness so parent
 	//     messages can project repeated/map fields via NewSlice2/NewMap2.
+	//
+	// Emitted godoc is a single-line summary by design (see (1) above).
 	g.P("// AsConst returns x as its read-only ", msgName, "_Const view.")
-	g.P("//")
-	g.P("// This is a zero-allocation cast: *", msgName, " already implements")
-	g.P("// ", msgName, "_Const, so the receiver is returned unchanged.")
 	g.P("func (x *", msgName, ") AsConst() ", msgName, "_Const {")
 	g.P("return x")
 	g.P("}")
@@ -330,12 +334,25 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// value that is != nil yet whose scalar getters still return zero
 	// values), so the generator emits this method on *Message itself
 	// and asks readers to use it instead.
-	g.P("// IsNil reports whether x is nil. It lets callers test the")
-	g.P("// \"no ", msgName, " behind this view\" condition without falling")
-	g.P("// into the typed-nil trap that `view == nil` would cause on a")
-	g.P("// *", msgName, " boxed into the ", msgName, "_Const interface.")
+	//
+	// Emitted godoc is a single-line summary by design (see (1) above).
+	g.P("// IsNil reports whether x is nil.")
 	g.P("func (x *", msgName, ") IsNil() bool {")
 	g.P("return x == nil")
+	g.P("}")
+	g.P()
+
+	// Clone is the concrete witness for the Clone() method on
+	// Message_Const. It delegates to proto.Clone, which performs a
+	// proper deep copy through the protobuf reflection runtime
+	// (handling unknown fields, extensions, and nested messages
+	// correctly), and asserts the result back to *Message because
+	// proto.Clone's static return type is the proto.Message interface.
+	//
+	// Emitted godoc is a single-line summary by design (see (1) above).
+	g.P("// Clone returns a deep copy of x as a fresh, mutable *", msgName, ".")
+	g.P("func (x *", msgName, ") Clone() *", msgName, " {")
+	g.P("return ", protoPackage.Ident("Clone"), "(x).(*", msgName, ")")
 	g.P("}")
 	g.P()
 

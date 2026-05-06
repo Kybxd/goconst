@@ -13,11 +13,6 @@ import (
 )
 
 // Event_Const is a read-only interface view of Event.
-//
-// *Event itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *Event.
 type Event_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -26,24 +21,24 @@ type Event_Const interface {
 	GetNote() string
 	GetCount() int32
 	ConstLocation() nested.Address_Const
+	Clone() *Event
 }
 
 var _ Event_Const = (*Event)(nil)
 
 // AsConst returns x as its read-only Event_Const view.
-//
-// This is a zero-allocation cast: *Event already implements
-// Event_Const, so the receiver is returned unchanged.
 func (x *Event) AsConst() Event_Const {
 	return x
 }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no Event behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *Event boxed into the Event_Const interface.
+// IsNil reports whether x is nil.
 func (x *Event) IsNil() bool {
 	return x == nil
+}
+
+// Clone returns a deep copy of x as a fresh, mutable *Event.
+func (x *Event) Clone() *Event {
+	return proto.Clone(x).(*Event)
 }
 
 func (x *Event) ConstLocation() nested.Address_Const {

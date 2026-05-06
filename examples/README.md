@@ -87,6 +87,11 @@ With both on you can verify (mainly in
   * `ConstHistory()`  returns `goconst.Slice[*timestamppb.Timestamp]`.
   * `ConstTsMap()`    returns `goconst.Map[string, *timestamppb.Timestamp]`.
   * None of the emitted companions call `.AsConst()` on excluded values.
+  * `Clone()`            returns a fresh, mutable `*Envelope` (delegates
+    to `proto.Clone`); the copy is independent of the source even
+    across the excluded `*external.External` and WKT pointer fields,
+    because `proto.Clone` walks the message via the protobuf
+    reflection runtime and is unaffected by `--exclude_packages`.
 
 To see the **opposite** behaviour for the in-repo `external` package,
 comment its `exclude_packages=...` line out and rerun `buf generate`:

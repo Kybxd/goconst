@@ -12,11 +12,6 @@ import (
 )
 
 // AllScalars_Const is a read-only interface view of AllScalars.
-//
-// *AllScalars itself satisfies this interface: scalar / enum / bytes
-// getters are inherited from the concrete type unchanged, and the
-// message / repeated / map getters whose signatures differ are
-// exposed via Const<Name> methods generated directly on *AllScalars.
 type AllScalars_Const interface {
 	proto.Message
 	goconst.DoNotCompare
@@ -40,22 +35,22 @@ type AllScalars_Const interface {
 	GetFOptionalString() string
 	GetFOptionalInt32() int32
 	GetFOptionalEnum() Color
+	Clone() *AllScalars
 }
 
 var _ AllScalars_Const = (*AllScalars)(nil)
 
 // AsConst returns x as its read-only AllScalars_Const view.
-//
-// This is a zero-allocation cast: *AllScalars already implements
-// AllScalars_Const, so the receiver is returned unchanged.
 func (x *AllScalars) AsConst() AllScalars_Const {
 	return x
 }
 
-// IsNil reports whether x is nil. It lets callers test the
-// "no AllScalars behind this view" condition without falling
-// into the typed-nil trap that `view == nil` would cause on a
-// *AllScalars boxed into the AllScalars_Const interface.
+// IsNil reports whether x is nil.
 func (x *AllScalars) IsNil() bool {
 	return x == nil
+}
+
+// Clone returns a deep copy of x as a fresh, mutable *AllScalars.
+func (x *AllScalars) Clone() *AllScalars {
+	return proto.Clone(x).(*AllScalars)
 }
