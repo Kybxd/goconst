@@ -382,8 +382,9 @@ plugins:
     out: gen/go
     opt:
       - paths=source_relative
-      # Optional, see "exclude_packages" below.
-      # - exclude_packages=google.golang.org/protobuf/types/known/timestamppb
+      # Optional, see "exclude_packages" below. Each entry is a path.Match
+      # glob, so the line below excludes every WKT subpackage at once.
+      # - exclude_packages=google.golang.org/protobuf/types/known/*
     strategy: all
 ```
 
@@ -474,17 +475,25 @@ The analyzer is a no-op on packages that do not (transitively) import
 
 ## Flag: `--exclude_packages`
 
-Comma/repeat-style flag listing Go import paths that should **not** get
-`*_Const` views. When a field references a message from an excluded
-package, the plugin keeps the concrete `*Type` in the enclosing `_Const`
-interface (and therefore emits no `Const<Name>` companion for it at all,
-since the signature already matches the concrete getter):
+Comma/repeat-style flag listing Go import path **glob patterns** that
+should **not** get `*_Const` views. Each entry is matched against the
+field's owning Go import path with [`path.Match`][path.Match] semantics,
+so plain paths still work as exact matches and `*` / `?` wildcards are
+available for bulk exclusions. When a field references a message from a
+matching package, the plugin keeps the concrete `*Type` in the enclosing
+`_Const` interface (and therefore emits no `Const<Name>` companion for it
+at all, since the signature already matches the concrete getter):
 
 ```yaml
 opt:
+  # Exact path — equivalent to the legacy "list of Go import paths" usage.
   - exclude_packages=github.com/you/yourrepo/gen/go/proto/external
-  - exclude_packages=google.golang.org/protobuf/types/known/timestamppb
+  # Glob — covers every WKT subpackage (timestamppb, durationpb, anypb,
+  # wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line.
+  - exclude_packages=google.golang.org/protobuf/types/known/*
 ```
+
+[path.Match]: https://pkg.go.dev/path#Match
 
 Typical use cases:
 
@@ -498,9 +507,10 @@ Typical use cases:
    will declare a getter returning e.g. `timestamppb.Timestamp_Const` —
    a type that does not exist — and the file will not compile.
 
-**Rule of thumb:** for every WKT you import, add its Go import path to
-`exclude_packages` (e.g. `.../timestamppb`, `.../durationpb`,
-`.../anypb`, `.../wrapperspb`, …).
+**Rule of thumb:** exclude every WKT package you import. The single
+glob `google.golang.org/protobuf/types/known/*` matches all of them
+(`.../timestamppb`, `.../durationpb`, `.../anypb`, `.../wrapperspb`,
+…) and is the recommended default for projects that touch any WKT.
 
 ## Project layout
 

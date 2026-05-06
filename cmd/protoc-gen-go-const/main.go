@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"strings"
 	"sync"
 
@@ -53,10 +54,14 @@ const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
 func main() {
 	var flags pflag.FlagSet
 	excludePackages := flags.StringSlice("exclude_packages", nil,
-		"Repeatable flag listing Go package import paths that should NOT "+
-			"receive *_Const interfaces. Fields whose type comes from an "+
-			"excluded package keep their concrete *Type in the enclosing "+
-			"_Const view and do not get .AsConst() called on them.")
+		"Repeatable flag listing Go package import path patterns that should "+
+			"NOT receive *_Const interfaces. Each entry is matched against "+
+			"the field's owning Go import path with path.Match semantics, so "+
+			"glob wildcards are supported (e.g. "+
+			"`google.golang.org/protobuf/types/known/*` excludes every WKT "+
+			"package in one line). Fields whose type comes from a matching "+
+			"package keep their concrete *Type in the enclosing _Const view "+
+			"and do not get .AsConst() called on them.")
 
 	protogen.Options{
 		ParamFunc: flags.Set,
@@ -98,33 +103,53 @@ type Generator struct {
 	once    sync.Once
 	genFile *protogen.GeneratedFile
 
-	// excludePackages is the set of Go import paths whose messages should
-	// be left as concrete *Type references. Populated from the
-	// --exclude_packages flag; see shouldExcludeMessage.
-	excludePackages map[string]bool
+	// excludePackagePatterns is the list of Go import path glob patterns
+	// whose messages should be left as concrete *Type references.
+	// Populated from the --exclude_packages flag; matched with path.Match
+	// in shouldExcludeMessage. A plain (wildcard-free) pattern degenerates
+	// to an exact-match check, so the legacy "list of import paths" usage
+	// keeps working unchanged.
+	excludePackagePatterns []string
 }
 
 // NewGenerator returns a Generator bound to a single input file. The
-// excludePackages slice is de-duplicated and trimmed into a set.
+// excludePackages slice is trimmed and stored as a list of path.Match
+// glob patterns.
 func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []string) *Generator {
-	excludePackagesMap := make(map[string]bool, len(excludePackages))
+	patterns := make([]string, 0, len(excludePackages))
 	for _, pkg := range excludePackages {
-		excludePackagesMap[strings.TrimSpace(pkg)] = true
+		pkg = strings.TrimSpace(pkg)
+		if pkg == "" {
+			continue
+		}
+		patterns = append(patterns, pkg)
 	}
 	return &Generator{
-		gen:             gen,
-		file:            file,
-		excludePackages: excludePackagesMap,
+		gen:                    gen,
+		file:                   file,
+		excludePackagePatterns: patterns,
 	}
 }
 
 // shouldExcludeMessage reports whether the plugin must NOT generate a _Const
 // interface for the given message (and, when referenced from an enclosing
 // message, must keep the concrete *Type signature without an AsConst()
-// projection). Look-up is by the message's owning Go import path.
+// projection). Look-up is by the message's owning Go import path, matched
+// against every pattern from --exclude_packages with path.Match semantics
+// (so `*` and `?` wildcards are supported, e.g.
+// `google.golang.org/protobuf/types/known/*` excludes every WKT package).
 func (x *Generator) shouldExcludeMessage(message *protogen.Message) bool {
 	pkgPath := string(message.GoIdent.GoImportPath)
-	return x.excludePackages[pkgPath]
+	for _, pattern := range x.excludePackagePatterns {
+		// path.Match only fails on a malformed pattern. We treat that as
+		// "does not match" — the plugin already validated nothing at flag
+		// parse time, so silently skipping a bad pattern matches what the
+		// previous exact-match implementation did with a typo'd entry.
+		if ok, _ := path.Match(pattern, pkgPath); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // Generate walks every top-level message in the input file (skipping those

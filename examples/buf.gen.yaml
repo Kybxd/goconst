@@ -15,13 +15,16 @@ plugins:
     opt:
       - paths=source_relative
       # Demonstrates --exclude_packages: any message whose generated Go import
-      # path matches one of these will NOT get a *_Const interface, and
-      # references to it will keep the concrete *Type in the enclosing Const
-      # interfaces. Enabled by default below; comment the next line out to
-      # see how generation looks without the flag.
+      # path matches one of these patterns will NOT get a *_Const interface,
+      # and references to it will keep the concrete *Type in the enclosing
+      # Const interfaces. Each entry is a path.Match glob, so wildcards like
+      # `*` and `?` are supported. Enabled by default below; comment a line
+      # out to see how generation looks without that exclusion.
       - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
       # Well-known types ship without any *_Const / AsConst of their own, so
       # they must be excluded explicitly — otherwise generated code would
       # call .AsConst() on e.g. *timestamppb.Timestamp and fail to build.
-      - exclude_packages=google.golang.org/protobuf/types/known/timestamppb
+      # The glob below covers every WKT subpackage (timestamppb, durationpb,
+      # anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line.
+      - exclude_packages=google.golang.org/protobuf/types/known/*
     strategy: all

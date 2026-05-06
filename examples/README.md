@@ -58,12 +58,19 @@ the emitted `*_Const` interface against the concrete `*Message`.
 ## Toggling `--exclude_packages`
 
 [`buf.gen.yaml`](buf.gen.yaml) ships with two `exclude_packages` entries
-enabled:
+enabled — one exact path, one glob:
 
 ```yaml
 - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
-- exclude_packages=google.golang.org/protobuf/types/known/timestamppb
+- exclude_packages=google.golang.org/protobuf/types/known/*
 ```
+
+Each entry is matched against a field's owning Go import path with
+[`path.Match`][path.Match] semantics, so the second line excludes
+**every** WKT subpackage (timestamppb, durationpb, anypb, wrapperspb, …)
+in one line.
+
+[path.Match]: https://pkg.go.dev/path#Match
 
 With both on you can verify (mainly in
 [`gen/go/importer/importer.const.pb.go`](gen/go/importer/importer.const.pb.go)):
@@ -86,7 +93,7 @@ the same getters will then return `External_Const` views (and be renamed
 to `ConstExt() / ConstExtras() / ConstExtMap()`) with
 `.AsConst()` chained under the hood.
 
-> ⚠️ Do **not** remove the `timestamppb` entry without first removing
+> ⚠️ Do **not** narrow / remove the WKT glob without first removing
 > the WKT fields from `importer.proto` — the output would reference a
 > non-existent `timestamppb.Timestamp_Const` and fail to compile. See
 > [root README → `--exclude_packages`](../README.md#flag---exclude_packages)
