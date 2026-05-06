@@ -80,7 +80,7 @@ With both on you can verify (mainly in
   (its `.const.pb.go` may be absent entirely).
 * Inside `Envelope_Const`:
   * `GetExt()`           returns `*external.External` (concrete type,
-    signature unchanged from the concrete getter, so no `Const` suffix).
+    signature unchanged from the concrete getter, so no `Const` prefix).
   * `ConstExtras()`   returns `goconst.Slice[*external.External]`.
   * `ConstExtMap()`   returns `goconst.Map[string, *external.External]`.
   * `GetCreatedAt()`     returns `*timestamppb.Timestamp` (unchanged).

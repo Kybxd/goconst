@@ -109,7 +109,8 @@ type Generator struct {
 	// excludePackagePatterns is the list of Go import path doublestar
 	// glob patterns whose messages should be left as concrete *Type
 	// references. Populated from the --exclude_packages flag; matched
-	// with doublestar.Match in shouldExcludeMessage. A plain (wildcard-
+	// with doublestar.Match in matchExcludePattern (used by both
+	// shouldExcludeFile and shouldExcludeMessage). A plain (wildcard-
 	// free) pattern degenerates to an exact-match check, so the legacy
 	// "list of import paths" usage keeps working unchanged.
 	excludePackagePatterns []string
@@ -134,6 +135,15 @@ func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []s
 	}
 }
 
+// shouldExcludeFile reports whether the input .proto's owning Go package
+// is matched by any --exclude_packages pattern. Equivalent to calling
+// shouldExcludeMessage on every top-level message in the file (they all
+// share the same Go import path), so callers that want to short-circuit
+// before iterating message-by-message can use this instead.
+func (x *Generator) shouldExcludeFile(file *protogen.File) bool {
+	return x.matchExcludePattern(string(file.GoImportPath))
+}
+
 // shouldExcludeMessage reports whether the plugin must NOT generate a _Const
 // interface for the given message (and, when referenced from an enclosing
 // message, must keep the concrete *Type signature without an AsConst()
@@ -143,8 +153,20 @@ func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []s
 // `**` segment matches any number of subpackages (e.g.
 // `google.golang.org/protobuf/types/known/**` covers every WKT package,
 // including nested ones).
+//
+// This is the per-reference variant: it must keep working for messages
+// from other packages reached via field types (see fieldNeedsConstPrefix,
+// fieldElemConstType, messageConstGoType), where the target package is
+// not necessarily x.file's own package. For the top-level "is the whole
+// input file excluded?" question, prefer [shouldExcludeFile].
 func (x *Generator) shouldExcludeMessage(message *protogen.Message) bool {
-	pkgPath := string(message.GoIdent.GoImportPath)
+	return x.matchExcludePattern(string(message.GoIdent.GoImportPath))
+}
+
+// matchExcludePattern reports whether pkgPath matches any of the
+// --exclude_packages doublestar glob patterns. Shared by
+// shouldExcludeFile and shouldExcludeMessage.
+func (x *Generator) matchExcludePattern(pkgPath string) bool {
 	for _, pattern := range x.excludePackagePatterns {
 		// doublestar.Match only fails on a malformed pattern. We treat
 		// that as "does not match" — the plugin already validated
@@ -158,14 +180,17 @@ func (x *Generator) shouldExcludeMessage(message *protogen.Message) bool {
 	return false
 }
 
-// Generate walks every top-level message in the input file (skipping those
-// in --exclude_packages) and emits its _Const API. Nested messages are
-// recursed into by genMessageConstAPI, so they are NOT iterated here.
+// Generate walks every top-level message in the input file and emits its
+// _Const API. The whole file is short-circuited up front via
+// shouldExcludeFile (every top-level message in a .proto shares the same
+// Go import path, so per-message exclusion would be redundant here).
+// Nested messages are recursed into by genMessageConstAPI, so they are
+// NOT iterated here.
 func (x *Generator) Generate() {
+	if x.shouldExcludeFile(x.file) {
+		return
+	}
 	for _, message := range x.file.Messages {
-		if x.shouldExcludeMessage(message) {
-			continue
-		}
 		x.genMessageConstAPI(message)
 	}
 }
@@ -262,7 +287,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P(goconstPackage.Ident("DoNotCompare"))
 	g.P()
 	for _, field := range message.Fields {
-		if x.fieldNeedsConstSuffix(field) {
+		if x.fieldNeedsConstPrefix(field) {
 			// Naming convention: fields whose signature differs from the
 			// concrete *Message use a `Const<Name>` method, so the read-only
 			// projection reads as a prefix qualifier rather than a suffix on
@@ -316,7 +341,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 
 	// --- (4) Const<Name> companions --------------------------------------
 	for _, field := range message.Fields {
-		if !x.fieldNeedsConstSuffix(field) {
+		if !x.fieldNeedsConstPrefix(field) {
 			continue
 		}
 		x.genConstGetter(message, field)
@@ -336,7 +361,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	}
 }
 
-// fieldNeedsConstSuffix reports whether the field's signature on the _Const
+// fieldNeedsConstPrefix reports whether the field's signature on the _Const
 // interface differs from its signature on the concrete *Message, and
 // therefore whether a dedicated Const<Name> companion must be emitted.
 //
@@ -349,7 +374,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 // Everything else (scalars, enums, bytes, and messages from excluded
 // packages) has a signature-compatible concrete getter, so no companion
 // method is needed and the interface simply lists the plain getter name.
-func (x *Generator) fieldNeedsConstSuffix(field *protogen.Field) bool {
+func (x *Generator) fieldNeedsConstPrefix(field *protogen.Field) bool {
 	if field.Desc.IsList() || field.Desc.IsMap() {
 		return true
 	}
@@ -367,7 +392,7 @@ func (x *Generator) fieldNeedsConstSuffix(field *protogen.Field) bool {
 // constructors goconst.NewSlice / NewSlice2 / NewMap / NewMap2; singular
 // non-excluded messages recurse through their own AsConst().
 //
-// The caller must only invoke this for fields where fieldNeedsConstSuffix
+// The caller must only invoke this for fields where fieldNeedsConstPrefix
 // returned true — other fields satisfy the interface via the concrete
 // getter and no emission is needed (or desired: emitting a duplicate
 // Get<Name> method would be a build error).
@@ -431,7 +456,7 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 
 	case field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind:
 		// Defensive: excluded-package messages should already have been
-		// filtered out by fieldNeedsConstSuffix. Keep the guard so an
+		// filtered out by fieldNeedsConstPrefix. Keep the guard so an
 		// accidental direct call here does not emit a reference to a
 		// non-existent T_Const type.
 		if x.shouldExcludeMessage(field.Message) {

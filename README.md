@@ -15,10 +15,10 @@ For each message `Foo`, it emits:
 * `func (x *Foo) AsConst() Foo_Const { return x }` — a zero-allocation
   cast. `*Foo` itself implements `Foo_Const`, so there is no wrapper
   struct, no per-call allocation, and no indirection on scalar getters.
-* `func (x *Foo) Get<Msg|Repeated|Map>Const() ...` — one companion
-  method per field whose signature had to change (singular message →
-  `T_Const`, `[]T` → `goconst.Slice[T]`, `map[K]V` → `goconst.Map[K,V]`),
-  attached directly to `*Foo` in the generated `foo.const.pb.go`.
+* `func (x *Foo) Const<Name>() ...` — one companion method per field
+  whose signature had to change (singular message → `T_Const`, `[]T` →
+  `goconst.Slice[T]`, `map[K]V` → `goconst.Map[K,V]`), attached directly
+  to `*Foo` in the generated `foo.const.pb.go`.
 
 Repeated and map fields are returned through
 [`goconst.Slice`](goconst.go) / [`goconst.Map`](goconst.go) — small

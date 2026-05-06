@@ -11,7 +11,7 @@ import "nested/nested.proto";
 // Address (imported from the nested package). The generated Event_Const
 // interface must:
 //   - expose Get{Note,Count}() returning scalars
-//   - expose GetLocation() returning nested.Address_Const
+//   - expose ConstLocation() returning nested.Address_Const
 //   - leave Event's oneof case accessor alone (generator currently emits
 //     only field-level getters, which is what we want to verify).
 message Event {
