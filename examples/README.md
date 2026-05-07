@@ -98,13 +98,15 @@ comment its `exclude_packages=...` line out and rerun `buf generate`:
 the same `GetExt()` / `GetExtras()` / `GetExtMap()` methods will then
 return `External_Const` views with `.AsConst()` chained under the
 hood. The `Slice` / `Map` return types in the generated code will also
-switch to the `Slice2` / `Map2` flavours —
-`goconst.Slice2[External_Const, *external.External]` and
-`goconst.Map2[string, External_Const, *external.External]` — which
-apply the `AsConst()` projection on access. The rule is: **`Slice2` /
-`Map2` appear whenever the element / value is a message from a
-non-excluded package**, and `Slice` / `Map` appear for scalar element /
-value types and for messages from excluded packages.
+switch to the per-message Go 1.24 alias forms — `External_ConstSlice`
+(an alias for `goconst.Slice2[External_Const, *external.External]`)
+and `External_ConstMap[string]` (an alias for
+`goconst.Map2[string, External_Const, *external.External]`) — which
+apply the `AsConst()` projection on access. The rule is: **the
+`_ConstSlice` / `_ConstMap[K]` aliases (backed by `Slice2` / `Map2`)
+appear whenever the element / value is a message from a non-excluded
+package**, and `Slice` / `Map` appear for scalar element / value types
+and for messages from excluded packages.
 
 > ⚠️ Do **not** narrow / remove the WKT glob without first removing
 > the WKT fields from `importer.proto` — the output would reference a

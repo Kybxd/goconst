@@ -130,8 +130,9 @@ func TestPerson_RepeatedMessage(t *testing.T) {
 	c := newPerson().AsConst()
 	s := c.GetPrevAddresses()
 
-	// Static type assertion: the getter must return Slice2[Address_Const, *Address].
-	var _ goconst.Slice2[Address_Const, *Address] = s
+	// Static type assertion: the getter must return the per-message
+	// Address_ConstSlice alias (= goconst.Slice2[Address_Const, *Address]).
+	var _ Address_ConstSlice = s
 
 	if got := s.Len(); got != 2 {
 		t.Fatalf("PrevAddresses.Len: got %d want 2", got)
@@ -190,8 +191,10 @@ func TestPerson_MapMessage(t *testing.T) {
 	c := newPerson().AsConst()
 	m := c.GetAddressBook()
 
-	// Static type assertion: value type must be the Address_Const wrapper.
-	var _ goconst.Map2[int64, Address_Const, *Address] = m
+	// Static type assertion: value type must be the Address_Const wrapper,
+	// surfaced via the Address_ConstMap[int64] alias (= goconst.Map2[int64,
+	// Address_Const, *Address]).
+	var _ Address_ConstMap[int64] = m
 
 	if got := m.Len(); got != 2 {
 		t.Fatalf("AddressBook.Len: got %d want 2", got)
@@ -237,7 +240,7 @@ func TestPerson_NestedType(t *testing.T) {
 	}
 
 	locs := contact.GetLocations()
-	var _ goconst.Map2[string, Address_Const, *Address] = locs
+	var _ Address_ConstMap[string] = locs
 	if locs.Len() != 2 {
 		t.Fatalf("Contact.Locations.Len: got %d want 2", locs.Len())
 	}
@@ -256,9 +259,9 @@ func TestPerson_NestedType(t *testing.T) {
 // sinks avoid that.
 var (
 	benchNestedSinkSliceString  goconst.Slice[string]
-	benchNestedSinkSlice2Addr   goconst.Slice2[Address_Const, *Address]
+	benchNestedSinkSlice2Addr   Address_ConstSlice
 	benchNestedSinkMapScalar    goconst.Map[string, string]
-	benchNestedSinkMap2Addr     goconst.Map2[int64, Address_Const, *Address]
+	benchNestedSinkMap2Addr     Address_ConstMap[int64]
 	benchNestedSinkInt          int
 	benchNestedSinkAddrConst    Address_Const
 )

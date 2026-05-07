@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the emitted Clone() method on each Message_Const wrapper
@@ -329,6 +329,34 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
+	// --- (1b) Per-message collection aliases ------------------------------
+	//
+	// Emit two Go 1.24 type aliases that bake the storage type E (=*Message)
+	// into the generic collection views, so callers see short, intuitive
+	// return types on getters rather than the raw three-parameter
+	// goconst.Slice2 / Map2 spelling:
+	//
+	//   type <Msg>_ConstSlice              = goconst.Slice2[<Msg>_Const, *<Msg>]
+	//   type <Msg>_ConstMap[K comparable]  = goconst.Map2[K, <Msg>_Const, *<Msg>]
+	//
+	// These are *pure* aliases — at runtime they are the same types as the
+	// RHS, with identical method sets, size, and ABI. The aliases only
+	// exist to shorten generated getter signatures like
+	// `GetAddressBook() <Msg>_ConstMap[int64]` instead of
+	// `GetAddressBook() goconst.Map2[int64, <Msg>_Const, *<Msg>]`.
+	//
+	// They are always emitted (not guarded by "is this message actually
+	// used as a repeated / map element?") so the surface of every _Const
+	// view is uniform: callers can form
+	// `var s <Msg>_ConstSlice = other.GetXs()` regardless of which parent
+	// field they are pulling the collection out of.
+	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
+		"[", msgName, "_Const, *", msgName, "]")
+	g.P("type ", msgName, "_ConstMap[K comparable] = ",
+		g.QualifiedGoIdent(goconstPackage.Ident("Map2")),
+		"[K, ", msgName, "_Const, *", msgName, "]")
+	g.P()
+
 	// --- (2) AsConst: zero-allocation "cast" ------------------------------
 	//
 	// Returns a Message_Const by value. Because the struct holds a
@@ -430,8 +458,10 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 //
 // Three kinds of fields qualify:
 //
-//   - repeated fields: []T → goconst.Slice[T] (or Slice2[T_Const, *T]);
-//   - map fields:      map[K]V → goconst.Map[K, V] (or Map2[K, V_Const, *V]);
+//   - repeated fields: []T → goconst.Slice[T] (or <T>_ConstSlice, the
+//     Go 1.24 alias for Slice2[T_Const, *T]);
+//   - map fields:      map[K]V → goconst.Map[K, V] (or <V>_ConstMap[K],
+//     the Go 1.24 alias for Map2[K, V_Const, *V]);
 //   - singular messages from a non-excluded package: *T → T_Const.
 //
 // Everything else (scalars, enums, bytes, and messages from excluded
@@ -569,42 +599,45 @@ func (x *Generator) isMessageElem(field *protogen.Field) bool {
 // Type-string helpers
 // ---------------------------------------------------------------------------
 
-// sliceContainerType returns the goconst.Slice[...] / goconst.Slice2[...]
-// type string for a repeated field, picking the two-parameter Slice2
-// variant (which carries the concrete element storage type E in the
-// signature so the per-element AsConst projection can be statically
-// dispatched) whenever the element is a non-excluded message type.
-// For scalar / enum / bytes elements and for excluded-package message
-// elements there is no AsConst projection needed, so the single-parameter
-// Slice variant is used and E is never exposed in the signature.
+// sliceContainerType returns the goconst.Slice[...] / <Msg>_ConstSlice
+// type string for a repeated field. For message elements from a
+// non-excluded package the per-message Go 1.24 alias <Msg>_ConstSlice
+// (= goconst.Slice2[<Msg>_Const, *<Msg>]) is used so the storage type
+// stays hidden from getter signatures. For scalar / enum / bytes
+// elements and for excluded-package message elements there is no
+// AsConst projection needed, so the single-parameter Slice variant
+// is used and E is never exposed in the signature.
 func (x *Generator) sliceContainerType(field *protogen.Field) string {
 	g := x.g()
 	if x.isMessageElem(field) && !x.shouldExcludeMessage(field.Message) {
-		elem := x.messageConstGoType(field.Message)
-		storage := "*" + g.QualifiedGoIdent(field.Message.GoIdent)
-		return fmt.Sprintf("%s[%s, %s]",
-			g.QualifiedGoIdent(goconstPackage.Ident("Slice2")), elem, storage)
+		return g.QualifiedGoIdent(protogen.GoIdent{
+			GoName:       field.Message.GoIdent.GoName + "_ConstSlice",
+			GoImportPath: field.Message.GoIdent.GoImportPath,
+		})
 	}
 	return fmt.Sprintf("%s[%s]",
 		g.QualifiedGoIdent(goconstPackage.Ident("Slice")), x.fieldElemConstType(field))
 }
 
-// mapContainerType returns the goconst.Map[...] / goconst.Map2[...]
-// type string for a map field, picking the three-parameter Map2 variant
-// (which carries the concrete value storage type E alongside the
-// projected view type V) whenever the value is a non-excluded message
-// type. Keys are always scalar / enum / bytes in proto3 so no projection
-// logic is needed on the key side.
+// mapContainerType returns the goconst.Map[...] / <ValueMsg>_ConstMap[K]
+// type string for a map field. When the value is a message from a
+// non-excluded package the per-message Go 1.24 generic alias
+// <ValueMsg>_ConstMap[K] (= goconst.Map2[K, <ValueMsg>_Const, *<ValueMsg>])
+// is used so the storage type stays hidden from getter signatures;
+// only the key type has to be written explicitly. Keys are always
+// scalar / enum / bytes in proto3 so no projection logic is needed on
+// the key side.
 func (x *Generator) mapContainerType(field *protogen.Field) string {
 	g := x.g()
 	keyField := field.Message.Fields[0]
 	valField := field.Message.Fields[1]
 	keyType := x.fieldGoType(keyField)
 	if x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message) {
-		valView := x.messageConstGoType(valField.Message)
-		valStorage := "*" + g.QualifiedGoIdent(valField.Message.GoIdent)
-		return fmt.Sprintf("%s[%s, %s, %s]",
-			g.QualifiedGoIdent(goconstPackage.Ident("Map2")), keyType, valView, valStorage)
+		aliasIdent := g.QualifiedGoIdent(protogen.GoIdent{
+			GoName:       valField.Message.GoIdent.GoName + "_ConstMap",
+			GoImportPath: valField.Message.GoIdent.GoImportPath,
+		})
+		return fmt.Sprintf("%s[%s]", aliasIdent, keyType)
 	}
 	valType := x.fieldElemConstType(valField)
 	return fmt.Sprintf("%s[%s, %s]",

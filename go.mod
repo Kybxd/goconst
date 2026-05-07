@@ -1,6 +1,6 @@
 module github.com/Kybxd/goconst
 
-go 1.23.0
+go 1.24.0
 
 require (
 	github.com/bmatcuk/doublestar/v4 v4.10.0

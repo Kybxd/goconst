@@ -8,8 +8,6 @@ package nested
 import (
 	"fmt"
 	"testing"
-
-	goconst "github.com/Kybxd/goconst"
 )
 
 // TestPerson_SliceStringer_Scalar asserts that printing the Slice view of
@@ -95,14 +93,14 @@ func TestPerson_MapStringer_Message(t *testing.T) {
 func TestStringer_ConcreteDispatch(t *testing.T) {
 	p := newPerson()
 
-	var slc goconst.Slice2[Address_Const, *Address] = p.AsConst().GetPrevAddresses()
+	var slc Address_ConstSlice = p.AsConst().GetPrevAddresses()
 	gotSlice := fmt.Sprint(slc)
 	wantSlice := fmt.Sprint(p.PrevAddresses)
 	if gotSlice != wantSlice {
 		t.Fatalf("fmt.Sprint via Slice2 concrete type:\n got = %q\nwant = %q", gotSlice, wantSlice)
 	}
 
-	var mp goconst.Map2[int64, Address_Const, *Address] = p.AsConst().GetAddressBook()
+	var mp Address_ConstMap[int64] = p.AsConst().GetAddressBook()
 	gotMap := fmt.Sprint(mp)
 	wantMap := fmt.Sprint(p.AddressBook)
 	if gotMap != wantMap {

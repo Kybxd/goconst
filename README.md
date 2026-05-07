@@ -11,13 +11,23 @@ For each message `Foo`, it emits:
   pointer. Every field is re-exposed through a `GetName()` forwarder
   on the wrapper: scalar / enum / `bytes` fields forward verbatim to
   `c.p.GetName()`; message / `repeated` / `map` fields return the
-  view-native type (`Foo_Const` / `goconst.Slice` / `Slice2` / `Map`
-  / `Map2`). Method names mirror the concrete getter on `*Foo` — no
-  collision, because `Foo_Const` is a distinct Go type. Since the
-  only field is unexported, a function that takes `Foo_Const`
-  physically cannot mutate the message — every mutation path
-  (`v.Field = x`, index-assign on the inner slice / map, append, etc.)
-  is closed by the Go type system at compile time.
+  view-native type (`Foo_Const` / `goconst.Slice` / `Foo_ConstSlice`
+  / `goconst.Map` / `Foo_ConstMap[K]`). Method names mirror the
+  concrete getter on `*Foo` — no collision, because `Foo_Const` is
+  a distinct Go type. Since the only field is unexported, a function
+  that takes `Foo_Const` physically cannot mutate the message — every
+  mutation path (`v.Field = x`, index-assign on the inner slice /
+  map, append, etc.) is closed by the Go type system at compile time.
+* `Foo_ConstSlice` / `Foo_ConstMap[K]` — Go 1.24 type aliases emitted
+  alongside every `Foo_Const`. They bake the storage type `*Foo` into
+  the underlying `goconst.Slice2` / `goconst.Map2` views so callers
+  see short, intuitive return types on getters (`Address_ConstSlice`,
+  `Address_ConstMap[int64]`) instead of the raw three-parameter
+  `goconst.Slice2[Address_Const, *Address]` /
+  `goconst.Map2[int64, Address_Const, *Address]` spelling. Since
+  aliases are a pure front-end concept, the underlying types, method
+  sets, size and ABI are unchanged — you can freely assign between
+  the alias and the raw `goconst.Slice2` / `Map2` form.
 * `func (x *Foo) AsConst() Foo_Const { return Foo_Const{p: x} }` — a
   zero-allocation cast. The wrapper is a single-pointer struct, returned
   by value in a register; there is no heap allocation, no indirection,
@@ -101,6 +111,9 @@ type Envelope_Const struct {
 	p *Envelope
 }
 
+type Envelope_ConstSlice             = goconst.Slice2[Envelope_Const, *Envelope]
+type Envelope_ConstMap[K comparable] = goconst.Map2[K, Envelope_Const, *Envelope]
+
 // AsConst returns x wrapped as its read-only Envelope_Const view.
 func (x *Envelope) AsConst() Envelope_Const { return Envelope_Const{p: x} }
 
@@ -112,11 +125,11 @@ func (c Envelope_Const) GetAddr() Address_Const {
 	return c.p.GetAddr().AsConst()
 }
 
-func (c Envelope_Const) GetHistory() goconst.Slice2[Address_Const, *Address] {
+func (c Envelope_Const) GetHistory() Address_ConstSlice {
 	return goconst.NewSlice2(c.p.GetHistory())
 }
 
-func (c Envelope_Const) GetByTag() goconst.Map2[string, Address_Const, *Address] {
+func (c Envelope_Const) GetByTag() Address_ConstMap[string] {
 	return goconst.NewMap2(c.p.GetByTag())
 }
 
@@ -211,7 +224,7 @@ func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map2[K, V, E]
 
 so the plugin only has to emit a **one-line companion getter** per
 message / repeated / map field. Type arguments on the constructor call
-are omitted on purpose — Go 1.23+ constraint type inference recovers
+are omitted on purpose — Go's constraint type inference recovers
 both the element type and the projected `_Const` type automatically.
 
 ### Compile-time read-only enforcement
@@ -433,14 +446,16 @@ Key design points:
   `(*Address)(nil)`, `AsConst()` wraps that into `Address_Const{p: nil}`,
   and every scalar getter on the resulting view still returns zero
   values instead of panicking.
-* **Repeated fields** switch from `[]T` to `goconst.Slice2[T_Const, *T]`
-  for message elements, or `goconst.Slice[T]` for scalar /
-  excluded-package elements. `GetHistory()` on the wrapper delegates to
-  `goconst.NewSlice2(...)` or `goconst.NewSlice(...)` respectively.
-* **Map fields** switch from `map[K]V` to
-  `goconst.Map2[K, V_Const, *V]` for message values, or
-  `goconst.Map[K, V]` for scalar / excluded-package values, likewise
-  delegating to `goconst.NewMap2(...)` or `goconst.NewMap(...)`.
+* **Repeated fields** switch from `[]T` to `T_ConstSlice` (a Go 1.24
+  type alias for `goconst.Slice2[T_Const, *T]`) for message elements,
+  or `goconst.Slice[T]` for scalar / excluded-package elements.
+  `GetHistory()` on the wrapper delegates to `goconst.NewSlice2(...)`
+  or `goconst.NewSlice(...)` respectively.
+* **Map fields** switch from `map[K]V` to `V_ConstMap[K]` (a Go 1.24
+  generic type alias for `goconst.Map2[K, V_Const, *V]`) for message
+  values, or `goconst.Map[K, V]` for scalar / excluded-package values,
+  likewise delegating to `goconst.NewMap2(...)` or
+  `goconst.NewMap(...)`.
 * **`oneof`** is supported; each arm's getter is emitted with the
   appropriate element type — scalar arms keep their plain `GetNote()`
   forwarder, message arms return the callee's `_Const` view
@@ -474,7 +489,7 @@ allocation**, whether you use the ergonomic `range view.All()` form or
 the indexed `Len()` + `At(i)` / `Get(k)` escape hatch.
 
 Measured on `examples/gen/go/nested` (`go test -bench`, AMD EPYC 9754,
-Go 1.23, 3-element fixtures). Slices run four iteration strategies;
+Go 1.24, 3-element fixtures). Slices run four iteration strategies;
 maps run three — `Len() + Get` on a map would have to drive iteration
 off the raw map and then Get once per key, so it benchmarks the raw
 map plus an extra lookup rather than a view-native path, and is
@@ -639,7 +654,7 @@ exercises and how to regenerate them locally.
 
 | Component                      | Pinned to                                               |
 | ------------------------------ | ------------------------------------------------------- |
-| Go                             | 1.23.0 (for stdlib [`iter`](https://pkg.go.dev/iter))   |
+| Go                             | 1.24.0 (for generic [type aliases](https://go.dev/doc/go1.24#language) and stdlib [`iter`](https://pkg.go.dev/iter)) |
 | `google.golang.org/protobuf`   | v1.36.11                                                |
 | `buf.build/protocolbuffers/go` | v1.36.11 (kept in sync with the above)                  |
 | proto editions supported       | proto2 → edition 2024 (via `FEATURE_SUPPORTS_EDITIONS`) |
