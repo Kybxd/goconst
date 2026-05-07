@@ -1,0 +1,54 @@
+// proto2.proto validates protoc-gen-go-const on classic proto2 semantics:
+// required / optional with explicit defaults, and the proto2-only `group`
+// construct. The generated *_Const interface must forward every concrete
+// getter (defaults are materialised by the underlying protoc-gen-go
+// getter, so the const layer stays purely a read-only projection).
+syntax = "proto2";
+
+package editions.proto2;
+// buf's STANDARD lint requires directory == package; this file lives at
+// proto/editions/proto2/ and its package is editions.proto2 to satisfy
+// both that rule and PACKAGE_VERSION_SUFFIX (which is excluded in
+// examples/buf.yaml — see the top-level comment there).
+
+// Color is a plain proto2 enum used both as a singular field and as the
+// type of a field carrying [default = COLOR_RED], so we exercise the
+// default-value path without the const wrapper needing to know about it.
+enum Color {
+  COLOR_UNSPECIFIED = 0;
+  COLOR_RED = 1;
+  COLOR_GREEN = 2;
+  COLOR_BLUE = 3;
+}
+
+// Person exercises:
+//   - required scalar            (name)
+//   - optional scalar + default  (age, zip, fav_color)
+//   - nested message             (Tag)
+//   - proto2 `group`             (Note)  — generated as a nested message
+//     type `Person_Note`, which must participate in *_Const generation
+//     just like any other nested message.
+//   - repeated message / map     (tags, labels)
+message Person {
+  // Tag is an ordinary nested message so we verify the generator still
+  // recurses from within a proto2 parent.
+  message Tag {
+    optional string key = 1;
+    optional string value = 2;
+  }
+
+  required string name = 1;
+  optional int32 age = 2 [ default = 18 ];
+  optional string zip = 3 [ default = "00000" ];
+  optional Color fav_color = 4 [ default = COLOR_RED ];
+
+  repeated Tag tags = 5;
+  map<string, Tag> labels = 6;
+
+  // proto2-only `group`. The Go type will be `*Person_Note`; the const
+  // view must therefore emit Person_Note_Const and a matching getter.
+  optional group Note = 10 {
+    optional string body = 11;
+    optional int32 priority = 12 [ default = 3 ];
+  }
+}

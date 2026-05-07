@@ -22,6 +22,9 @@ types), see the [root README](../README.md).
 | `proto/oneof/oneof.proto`       | `oneof` arms (scalar + cross-file message)                                                                                                                                               |
 | `proto/external/external.proto` | a standalone package used as the `--exclude_packages` target                                                                                                                             |
 | `proto/importer/importer.proto` | cross-package references to an excluded in-repo package, a non-excluded in-repo package, **and a well-known type (`google.protobuf.Timestamp`)**, in singular / repeated / map positions |
+| `proto/editions/proto2/proto2.proto`             | proto2: `required` / `optional` with `[default = …]`, proto2-only `group`, nested message, repeated / map-with-message                                                 |
+| `proto/editions/edition2023/edition2023.proto`   | Edition 2023 (OPEN API): `features.field_presence` matrix (EXPLICIT / IMPLICIT / LEGACY_REQUIRED) + `features.enum_type = CLOSED`                                      |
+| `proto/editions/edition2024/edition2024.proto`   | Edition 2024 (OPAQUE API by default): same feature matrix as 2023; pins that the const layer is API-level-agnostic — only `Get*` is forwarded, so OPAQUE works too     |
 
 ## Generate
 

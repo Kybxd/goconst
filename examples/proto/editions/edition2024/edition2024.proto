@@ -1,0 +1,59 @@
+// edition2024.proto validates protoc-gen-go-const on Protobuf Edition
+// 2024. The defining change for Go users is that edition 2024 defaults
+// features.(pb.go).api_level to API_OPAQUE — structs no longer expose
+// public fields; callers must use Get*/Set*/Has*/Clear* accessors, and
+// the generated struct fields are renamed to xxx_hidden_<name>.
+//
+// The const layer still works uniformly because it only forwards
+// Get*() getters, which the opaque API continues to provide. This
+// example therefore serves two purposes:
+//
+//   1. Prove the generator emits correct, compiling Go on edition 2024.
+//   2. Pin the expectation that *_Const wrappers interoperate with the
+//      opaque API without any special-casing.
+//
+// We also exercise the same presence / enum_type feature matrix as the
+// edition 2023 example, so that this file alone proves edition 2024's
+// OPEN→OPAQUE API switch is the only observable difference.
+edition = "2024";
+
+package editions.edition2024;
+// Directory-matches-package convention: this file lives at
+// proto/editions/edition2024/, matching its proto package name.
+
+// File-level default: EXPLICIT presence (proto2-like). Individual
+// fields below override this where needed.
+option features.field_presence = EXPLICIT;
+
+// Color pinned to CLOSED enum semantics to exercise that code path
+// (edition defaults would otherwise be OPEN).
+enum Color {
+  option features.enum_type = CLOSED;
+
+  COLOR_UNSPECIFIED = 0;
+  COLOR_RED = 1;
+  COLOR_GREEN = 2;
+  COLOR_BLUE = 3;
+}
+
+// Tag is reused as repeated / map value element to cover message
+// recursion under edition 2024.
+message Tag {
+  string key = 1;
+  string value = 2;
+}
+
+// Person exercises every presence flavour on scalars + a nested
+// message + repeated message + map-with-message-value + a CLOSED
+// enum field, all through the OPAQUE Go API.
+message Person {
+  string name = 1; // EXPLICIT (file default)
+  int32 age = 2 [ features.field_presence = IMPLICIT ]; // proto3-like
+  string id = 3
+      [ features.field_presence = LEGACY_REQUIRED ]; // proto2 required
+  Color fav_color = 4;                               // CLOSED enum, EXPLICIT
+
+  Tag home_tag = 5;            // singular nested message
+  repeated Tag tags = 6;       // repeated message
+  map<string, Tag> labels = 7; // map<scalar, message>
+}
