@@ -1,5 +1,7 @@
 # goconst
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/Kybxd/goconst.svg)](https://pkg.go.dev/github.com/Kybxd/goconst)
+
 A [`protoc`](https://protobuf.dev) / [`buf`](https://buf.build) plugin
 (`protoc-gen-go-const`) that generates a **read-only struct view** for
 every `message` in your `.proto` files, alongside the standard
