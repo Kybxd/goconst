@@ -5,17 +5,20 @@ package nested
 
 import (
 	"maps"
+	"reflect"
 	"slices"
 	"testing"
 
 	goconst "github.com/Kybxd/goconst"
 )
 
-// Compile-time assertions: every generated struct must satisfy both its
-// *_Const interface and goconst.Constable[<Iface>]. *Message values are
-// also expected to satisfy goconst.DoNotCompare directly, since the
-// generator emits an IsNil() method on every message pointer type to
-// back the DoNotCompare contract.
+// Compile-time assertions: every concrete *Message must be a
+// goconst.Constable whose AsConst() produces the matching wrapper
+// struct. Under the struct-wrapper scheme the view is a concrete
+// struct (not an interface), so an "interface-satisfaction" assertion
+// against *Address is no longer the right shape — we instead assert
+// that the value returned by AsConst() is exactly the expected view
+// type. A stray rename on either side fails the build here.
 var (
 	_ Address_Const                           = (*Address)(nil).AsConst()
 	_ Person_Const                            = (*Person)(nil).AsConst()
@@ -23,9 +26,6 @@ var (
 	_ goconst.Constable[Address_Const]        = (*Address)(nil)
 	_ goconst.Constable[Person_Const]         = (*Person)(nil)
 	_ goconst.Constable[Person_Contact_Const] = (*Person_Contact)(nil)
-	_ goconst.DoNotCompare                    = (*Address)(nil)
-	_ goconst.DoNotCompare                    = (*Person)(nil)
-	_ goconst.DoNotCompare                    = (*Person_Contact)(nil)
 )
 
 func newPerson() *Person {
@@ -67,14 +67,14 @@ func TestAddress_AsConst(t *testing.T) {
 	}
 }
 
-// TestPerson_SingularMessage checks that ConstHome() on the _Const view
+// TestPerson_SingularMessage checks that GetHome() on the _Const view
 // returns an Address_Const whose concrete data matches the backing Address.
 func TestPerson_SingularMessage(t *testing.T) {
 	p := newPerson()
 	c := p.AsConst()
-	home := c.ConstHome()
-	if home == nil {
-		t.Fatal("ConstHome() returned nil _Const view")
+	home := c.GetHome()
+	if home.IsNil() {
+		t.Fatal("GetHome() returned a nil-backed _Const view")
 	}
 	if home.GetStreet() != "Main 1" || home.GetCity() != "SF" || home.GetZip() != "94101" {
 		t.Fatalf("Home mismatch: %+v", home)
@@ -83,13 +83,16 @@ func TestPerson_SingularMessage(t *testing.T) {
 
 // TestPerson_NilSingularMessage confirms that calling AsConst() on a nil
 // child pointer (common proto3 case) does not panic and that callers can
-// still invoke scalar getters, which return zero values.
+// still invoke scalar getters, which return zero values. Note that under
+// the struct-wrapper scheme `home == nil` is a compile error — the view
+// is always a concrete struct value — so the nil-ness question is asked
+// via IsNil() instead.
 func TestPerson_NilSingularMessage(t *testing.T) {
 	p := &Person{Name: "no-home"}
 	c := p.AsConst()
-	home := c.ConstHome()
-	if home == nil {
-		t.Fatal("ConstHome() on missing field must return a typed non-nil view")
+	home := c.GetHome()
+	if !home.IsNil() {
+		t.Fatal("GetHome() on missing field: IsNil() = false, want true")
 	}
 	if got := home.GetStreet(); got != "" {
 		t.Errorf("Street on nil-backed Home: got %q, want \"\"", got)
@@ -97,10 +100,10 @@ func TestPerson_NilSingularMessage(t *testing.T) {
 }
 
 // TestPerson_RepeatedScalar covers goconst.NewSlice for a []string field,
-// exposed through ConstTags() under the direct-style API.
+// exposed through GetTags() under the direct-style API.
 func TestPerson_RepeatedScalar(t *testing.T) {
 	c := newPerson().AsConst()
-	s := c.ConstTags()
+	s := c.GetTags()
 	if got := s.Len(); got != 3 {
 		t.Fatalf("Tags.Len: got %d want 3", got)
 	}
@@ -122,13 +125,13 @@ func TestPerson_RepeatedScalar(t *testing.T) {
 
 // TestPerson_RepeatedMessage covers goconst.NewSlice2: every element is
 // projected through AsConst, so At(i) returns Address_Const (not *Address).
-// Exposed through ConstPrevAddresses() under the direct-style API.
+// Exposed through GetPrevAddresses() under the direct-style API.
 func TestPerson_RepeatedMessage(t *testing.T) {
 	c := newPerson().AsConst()
-	s := c.ConstPrevAddresses()
+	s := c.GetPrevAddresses()
 
-	// Static type assertion: the getter must return Slice[Address_Const].
-	var _ goconst.Slice[Address_Const] = s
+	// Static type assertion: the getter must return Slice2[Address_Const, *Address].
+	var _ goconst.Slice2[Address_Const, *Address] = s
 
 	if got := s.Len(); got != 2 {
 		t.Fatalf("PrevAddresses.Len: got %d want 2", got)
@@ -149,10 +152,10 @@ func TestPerson_RepeatedMessage(t *testing.T) {
 }
 
 // TestPerson_MapScalar covers goconst.NewMap for map<string,string>,
-// exposed through ConstAttributes() under the direct-style API.
+// exposed through GetAttributes() under the direct-style API.
 func TestPerson_MapScalar(t *testing.T) {
 	c := newPerson().AsConst()
-	m := c.ConstAttributes()
+	m := c.GetAttributes()
 
 	if got := m.Len(); got != 2 {
 		t.Fatalf("Attributes.Len: got %d want 2", got)
@@ -182,13 +185,13 @@ func TestPerson_MapScalar(t *testing.T) {
 
 // TestPerson_MapMessage covers goconst.NewMap2 for map<int64,Address>:
 // values come out as Address_Const, concrete Address is not exposed.
-// Exposed through ConstAddressBook() under the direct-style API.
+// Exposed through GetAddressBook() under the direct-style API.
 func TestPerson_MapMessage(t *testing.T) {
 	c := newPerson().AsConst()
-	m := c.ConstAddressBook()
+	m := c.GetAddressBook()
 
-	// Static type assertion: value type must be the _Const interface.
-	var _ goconst.Map[int64, Address_Const] = m
+	// Static type assertion: value type must be the Address_Const wrapper.
+	var _ goconst.Map2[int64, Address_Const, *Address] = m
 
 	if got := m.Len(); got != 2 {
 		t.Fatalf("AddressBook.Len: got %d want 2", got)
@@ -205,12 +208,13 @@ func TestPerson_MapMessage(t *testing.T) {
 	if ok {
 		t.Error("AddressBook[99]: ok=true, want false")
 	}
-	// Per NewMap2 contract, the value returned on a miss is a typed-nil
-	// view: non-nil at the interface level so scalar getters are safe to
-	// call, while the authoritative presence flag is the second return
-	// value. See also TestPerson_Map_Zero.
-	if zero == nil {
-		t.Error("AddressBook[99] zero: got nil interface, want typed-nil view")
+	// Per NewMap2 contract, the value returned on a miss is a nil-backed
+	// view: the struct wrapper is always a real value (so `zero == nil`
+	// would not even compile), scalar getters are safe to call on it,
+	// and the authoritative presence flag is the second return value.
+	// See also TestPerson_Map_Zero.
+	if !zero.IsNil() {
+		t.Error("AddressBook[99] zero.IsNil(): got false, want true")
 	}
 	if got := zero.GetCity(); got != "" {
 		t.Errorf("AddressBook[99] zero.GetCity(): got %q, want \"\"", got)
@@ -221,19 +225,19 @@ func TestPerson_MapMessage(t *testing.T) {
 // Person_Contact, including its own repeated and map with message value.
 func TestPerson_NestedType(t *testing.T) {
 	c := newPerson().AsConst()
-	contact := c.ConstContact()
-	if contact == nil {
-		t.Fatal("Contact: nil _Const")
+	contact := c.GetContact()
+	if contact.IsNil() {
+		t.Fatal("Contact: nil-backed _Const view")
 	}
 	if contact.GetEmail() != "a@x.com" {
 		t.Errorf("Contact.Email: got %q", contact.GetEmail())
 	}
-	if contact.ConstPhones().Len() != 2 {
-		t.Errorf("Contact.Phones.Len: got %d want 2", contact.ConstPhones().Len())
+	if contact.GetPhones().Len() != 2 {
+		t.Errorf("Contact.Phones.Len: got %d want 2", contact.GetPhones().Len())
 	}
 
-	locs := contact.ConstLocations()
-	var _ goconst.Map[string, Address_Const] = locs
+	locs := contact.GetLocations()
+	var _ goconst.Map2[string, Address_Const, *Address] = locs
 	if locs.Len() != 2 {
 		t.Fatalf("Contact.Locations.Len: got %d want 2", locs.Len())
 	}
@@ -245,14 +249,26 @@ func TestPerson_NestedType(t *testing.T) {
 
 // ---- Benchmarks ------------------------------------------------------------
 
-var benchNestedSink any
+// benchNestedSink is deliberately NOT `any`: assigning a concrete struct
+// view (goconst.Slice / Slice2 / Map / Map2) to an `any`-typed sink would
+// box it into an interface header, adding a 24 B / 1 alloc measurement
+// artefact that has nothing to do with the view itself. Typed per-kind
+// sinks avoid that.
+var (
+	benchNestedSinkSliceString  goconst.Slice[string]
+	benchNestedSinkSlice2Addr   goconst.Slice2[Address_Const, *Address]
+	benchNestedSinkMapScalar    goconst.Map[string, string]
+	benchNestedSinkMap2Addr     goconst.Map2[int64, Address_Const, *Address]
+	benchNestedSinkInt          int
+	benchNestedSinkAddrConst    Address_Const
+)
 
 func BenchmarkNested_NewSlice_Scalar(b *testing.B) {
 	c := newPerson().AsConst()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.ConstTags()
+		benchNestedSinkSliceString = c.GetTags()
 	}
 }
 
@@ -261,7 +277,7 @@ func BenchmarkNested_NewSlice2_Message(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.ConstPrevAddresses()
+		benchNestedSinkSlice2Addr = c.GetPrevAddresses()
 	}
 }
 
@@ -270,7 +286,7 @@ func BenchmarkNested_NewMap_Scalar(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.ConstAttributes()
+		benchNestedSinkMapScalar = c.GetAttributes()
 	}
 }
 
@@ -279,7 +295,7 @@ func BenchmarkNested_NewMap2_Message(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		benchNestedSink = c.ConstAddressBook()
+		benchNestedSinkMap2Addr = c.GetAddressBook()
 	}
 }
 
@@ -294,12 +310,12 @@ func BenchmarkNested_Iter_TagsRaw(b *testing.B) {
 			n++
 		}
 	}
-	benchNestedSink = n
+	benchNestedSinkInt = n
 }
 
 func BenchmarkNested_Iter_TagsViaAll(b *testing.B) {
 	c := newPerson().AsConst()
-	s := c.ConstTags()
+	s := c.GetTags()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var n int
@@ -308,12 +324,12 @@ func BenchmarkNested_Iter_TagsViaAll(b *testing.B) {
 			n++
 		}
 	}
-	benchNestedSink = n
+	benchNestedSinkInt = n
 }
 
 func BenchmarkNested_Iter_PrevAddressesViaAll(b *testing.B) {
 	c := newPerson().AsConst()
-	s := c.ConstPrevAddresses()
+	s := c.GetPrevAddresses()
 	b.ReportAllocs()
 	b.ResetTimer()
 	var n int
@@ -323,24 +339,25 @@ func BenchmarkNested_Iter_PrevAddressesViaAll(b *testing.B) {
 			n++
 		}
 	}
-	benchNestedSink = n
+	benchNestedSinkInt = n
 }
 
 func BenchmarkNested_Map_GetHit(b *testing.B) {
-	m := newPerson().AsConst().ConstAddressBook()
+	m := newPerson().AsConst().GetAddressBook()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		v, _ := m.Get(1)
-		benchNestedSink = v
+		benchNestedSinkAddrConst = v
 	}
 }
 
 // ---- iteration-overhead benchmark matrix -----------------------------------
 //
-// One Benchmark per data shape, four sub-benchmarks per shape, all driven
-// through b.Run so a single `go test -bench=BenchmarkNested_Range -benchmem`
-// invocation produces the full 4×4 grid in one pass.
+// One Benchmark per data shape, three or four sub-benchmarks per shape,
+// all driven through b.Run so a single
+// `go test -bench=BenchmarkNested_Range -benchmem` invocation produces
+// the full grid in one pass.
 //
 // Data shapes (rows):
 //
@@ -359,48 +376,43 @@ func BenchmarkNested_Map_GetHit(b *testing.B) {
 //                  is consumed in-place by `for range`, escape analysis
 //                  proves the closure doesn't escape and the loop runs
 //                  with zero allocations.
-//   C. LenAt /   — `for i := range s.Len() { _ = s.At(i) }` for slices,
-//      LenKeys     `for k := range m.Keys() { _ = m.Get(k) }` is *not*
-//                  used (Keys() is itself a rangefunc, see D); for maps
-//                  the index-style equivalent doesn't exist, so this
-//                  slot reuses the raw map but iterates via the goconst
-//                  view's Get on every key from the underlying map —
-//                  see the per-shape comment for the exact wiring.
+//   C. LenAt     — slice-only: `for i := range s.Len() { _ = s.At(i) }`,
+//                  the indexed escape hatch on goconst.Slice / Slice2.
+//                  Omitted for maps: map has no integer index, and a
+//                  "Len + Get on every key" variant ends up driving
+//                  iteration off the raw map — it benchmarks the raw map
+//                  + an extra Get, not a view-native iteration path —
+//                  so it carries no information the other columns don't.
 //   D. All       — `for ... range s.All()` / `m.All()` on the goconst
-//                  view. Hits the slow path: methods returning a
-//                  func literal don't get the same in-caller closure
-//                  outline that stdlib free functions enjoy, so the
-//                  closure escapes and each loop pays the rangefunc
-//                  protocol cost (a fixed handful of allocs/loop,
-//                  independent of element count).
+//                  view. The struct-wrapper design keeps the returned
+//                  iter.Seq / iter.Seq2 funcval visible to the inliner
+//                  at the call site, so the closure environment does not
+//                  escape and the loop runs at zero allocations, on par
+//                  with Raw / RawAll.
 //
-// Why the four columns:
+// Why the columns:
 //
 //   - Raw is the reference: anything we add must, at best, match it.
 //   - RawAll proves the rangefunc protocol *itself* is not the cost;
 //     when the compiler can inline the producer in place, the loop is
 //     allocation-free. (Verified via go build -gcflags=-m=2:
 //     "func literal does not escape" at the slices.All call site.)
-//   - LenAt / Get is the recommended idiom for goconst.Slice in tight
-//     loops — the Len/At/Get methods inline (cost well within budget,
-//     verified the same way), so this path matches Raw within noise
-//     and stays at zero allocs.
-//   - All is the ergonomic-but-pricier path. It is shipped because it
-//     composes naturally with iter.Seq consumers (slices.Collect,
-//     lo/it helpers, etc.), but its per-loop cost is non-zero today
-//     because the method-returning-closure form loses the in-caller
-//     outline that stdlib free functions get. The benchmark exists
-//     to (a) make that cost legible, (b) act as a regression canary
-//     when Go improves rangefunc lowering — when the All sub-bench
-//     drops to RawAll's numbers, that is a real Go-toolchain win
-//     worth recording.
+//   - LenAt (slices only) exists because it is the only idiom on goconst
+//     views that does not use rangefunc at all — useful as a regression
+//     canary that the Len/At pair keeps inlining to the same codegen
+//     quality as a native `for i := range s`.
+//   - All is the ergonomic path. With the struct-wrapper design it
+//     matches Raw / RawAll to within noise on every shape; the
+//     benchmark exists to keep that guarantee, so that a future
+//     regression (e.g. the iter.Seq funcval starting to escape) shows
+//     up in CI numbers rather than silently.
 
 // BenchmarkNested_RangeScalarSlice covers []string (NewSlice). Body work
 // per element: read v, bump counter. The four strategies are equivalent
 // in observable behaviour; only the iteration mechanism varies.
 func BenchmarkNested_RangeScalarSlice(b *testing.B) {
 	p := newPerson()
-	s := p.AsConst().ConstTags()
+	s := p.AsConst().GetTags()
 
 	b.Run("Raw", func(b *testing.B) {
 		b.ReportAllocs()
@@ -412,7 +424,7 @@ func BenchmarkNested_RangeScalarSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("RawAll", func(b *testing.B) {
@@ -425,7 +437,7 @@ func BenchmarkNested_RangeScalarSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("LenAt", func(b *testing.B) {
@@ -438,7 +450,7 @@ func BenchmarkNested_RangeScalarSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("All", func(b *testing.B) {
@@ -451,17 +463,17 @@ func BenchmarkNested_RangeScalarSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 }
 
 // BenchmarkNested_RangeStructSlice covers []*Address (NewSlice2). Body
-// work per element: read one scalar field on the (possibly typed-nil)
+// work per element: read one scalar field on the (possibly nil-backed)
 // view. The All path additionally exercises the per-element AsConst
 // projection that NewSlice2 stamps onto every read.
 func BenchmarkNested_RangeStructSlice(b *testing.B) {
 	p := newPerson()
-	s := p.AsConst().ConstPrevAddresses()
+	s := p.AsConst().GetPrevAddresses()
 
 	b.Run("Raw", func(b *testing.B) {
 		b.ReportAllocs()
@@ -473,7 +485,7 @@ func BenchmarkNested_RangeStructSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("RawAll", func(b *testing.B) {
@@ -486,7 +498,7 @@ func BenchmarkNested_RangeStructSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("LenAt", func(b *testing.B) {
@@ -499,7 +511,7 @@ func BenchmarkNested_RangeStructSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("All", func(b *testing.B) {
@@ -512,22 +524,15 @@ func BenchmarkNested_RangeStructSlice(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 }
 
 // BenchmarkNested_RangeScalarMap covers map[string]string (NewMap). Body
 // work per element: read k and v, bump counter.
-//
-// LenGet column note: a map has no integer index, so the closest
-// "index-style" idiom is to drive iteration off the underlying map's
-// own range and look each key back up via the goconst view's Get.
-// That doubles the per-element work (one native lookup + one Get
-// lookup), which is intentional — it captures what users actually
-// pay if they want the goconst Get semantics in a hot map loop.
 func BenchmarkNested_RangeScalarMap(b *testing.B) {
 	p := newPerson()
-	m := p.AsConst().ConstAttributes()
+	m := p.AsConst().GetAttributes()
 
 	b.Run("Raw", func(b *testing.B) {
 		b.ReportAllocs()
@@ -539,7 +544,7 @@ func BenchmarkNested_RangeScalarMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("RawAll", func(b *testing.B) {
@@ -552,21 +557,7 @@ func BenchmarkNested_RangeScalarMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
-	})
-
-	b.Run("LenGet", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-		var n int
-		for i := 0; i < b.N; i++ {
-			for k := range p.Attributes {
-				v, _ := m.Get(k)
-				_, _ = k, v
-				n++
-			}
-		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("All", func(b *testing.B) {
@@ -579,7 +570,7 @@ func BenchmarkNested_RangeScalarMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 }
 
@@ -588,7 +579,7 @@ func BenchmarkNested_RangeScalarMap(b *testing.B) {
 // The All path exercises the per-value AsConst projection NewMap2 adds.
 func BenchmarkNested_RangeStructMap(b *testing.B) {
 	p := newPerson()
-	m := p.AsConst().ConstAddressBook()
+	m := p.AsConst().GetAddressBook()
 
 	b.Run("Raw", func(b *testing.B) {
 		b.ReportAllocs()
@@ -601,7 +592,7 @@ func BenchmarkNested_RangeStructMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("RawAll", func(b *testing.B) {
@@ -615,22 +606,7 @@ func BenchmarkNested_RangeStructMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
-	})
-
-	b.Run("LenGet", func(b *testing.B) {
-		b.ReportAllocs()
-		b.ResetTimer()
-		var n int
-		for i := 0; i < b.N; i++ {
-			for k := range p.AddressBook {
-				a, _ := m.Get(k)
-				_ = k
-				_ = a.GetCity()
-				n++
-			}
-		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 
 	b.Run("All", func(b *testing.B) {
@@ -644,121 +620,56 @@ func BenchmarkNested_RangeStructMap(b *testing.B) {
 				n++
 			}
 		}
-		benchNestedSink = n
+		benchNestedSinkInt = n
 	})
 }
 
-// TestPerson_Slice_Zero exercises the Zero() method on every Slice flavour:
-//
-//   - Slice[scalar] (built via NewSlice) returns the plain Go zero value.
-//   - Slice[_ConstIface] (built via NewSlice2) returns a typed-nil view
-//     whose scalar getters are safe to call — the key property that makes
-//     Zero() usable as a default sentinel for third-party helpers like
-//     lo/it.FindOrElse without risking a nil-interface panic.
-func TestPerson_Slice_Zero(t *testing.T) {
+// TestPerson_Map2_Get_Miss pins down the key guarantee of Map2.Get on
+// a miss: the returned value is the Go zero value of the view struct,
+// i.e. a view whose wrapped *Message pointer is nil. Callers can
+// therefore safely invoke scalar getters on it without a nil-check, as
+// long as they treat the second return value as the authoritative
+// presence flag. This is the main regression-guard: an earlier
+// interface-based scheme returned a bare nil view and scalar getters
+// would panic here.
+func TestPerson_Map2_Get_Miss(t *testing.T) {
 	c := newPerson().AsConst()
+	m := c.GetAddressBook()
 
-	// Scalar Slice: Zero is the untyped string zero value.
-	if got := c.ConstTags().Zero(); got != "" {
-		t.Errorf("ConstTags().Zero(): got %q, want \"\"", got)
-	}
-
-	// Constable Slice: Zero is a non-nil typed-nil view, and every scalar
-	// getter on it must return the zero value without panicking — the
-	// same contract exercised in TestPerson_NilSingularMessage, but for
-	// the "miss" sentinel returned by Zero() instead of a nil struct
-	// field.
-	z := c.ConstPrevAddresses().Zero()
-	if z == nil {
-		t.Fatal("ConstPrevAddresses().Zero(): got nil interface, want typed-nil view")
-	}
-	if got := z.GetStreet(); got != "" {
-		t.Errorf("Zero().GetStreet(): got %q, want \"\"", got)
-	}
-	if got := z.GetCity(); got != "" {
-		t.Errorf("Zero().GetCity(): got %q, want \"\"", got)
-	}
-	if got := z.GetZip(); got != "" {
-		t.Errorf("Zero().GetZip(): got %q, want \"\"", got)
-	}
-
-	// Zero() is also a handy default when folding over Values() without
-	// an external helper. Here we locate the element with Zip == "12345"
-	// (missing) and fall back to Zero(), mirroring how a caller would use
-	// lo/it.FindOrElse(s.Values(), s.Zero(), pred) externally. The key
-	// point: the subsequent .GetCity() call does not panic.
-	s := c.ConstPrevAddresses()
-	found := s.Zero()
-	for _, a := range s.All() {
-		if a.GetZip() == "12345" {
-			found = a
-			break
-		}
-	}
-	if got := found.GetCity(); got != "" {
-		t.Errorf("Zero()-fallback .GetCity(): got %q, want \"\"", got)
-	}
-}
-
-// TestPerson_Map_Zero mirrors TestPerson_Slice_Zero for Map, and also
-// pins down the key guarantee of _Map2.Get on a miss: the returned value
-// is equal in spirit to m.Zero() — a typed-nil view — so callers can
-// safely invoke scalar getters on it without a nil-check, as long as
-// they treat the second return value as the authoritative presence flag.
-func TestPerson_Map_Zero(t *testing.T) {
-	c := newPerson().AsConst()
-
-	// Scalar Map: Zero is the untyped string zero value.
-	if got := c.ConstAttributes().Zero(); got != "" {
-		t.Errorf("ConstAttributes().Zero(): got %q, want \"\"", got)
-	}
-
-	m := c.ConstAddressBook()
-	z := m.Zero()
-	if z == nil {
-		t.Fatal("ConstAddressBook().Zero(): got nil interface, want typed-nil view")
-	}
-	if got := z.GetCity(); got != "" {
-		t.Errorf("Zero().GetCity(): got %q, want \"\"", got)
-	}
-
-	// Get on a missing key must return a view that behaves identically
-	// to Zero() — non-nil interface, scalar getters yield the zero
-	// value. This is the main regression-guard: a previous version
-	// returned a bare "var zero V" (nil interface) and would panic here.
 	v, ok := m.Get(99)
 	if ok {
 		t.Fatal("AddressBook[99]: ok=true, want false")
 	}
-	if v == nil {
-		t.Fatal("AddressBook[99]: got nil interface, want typed-nil view")
+	if !v.IsNil() {
+		t.Fatal("AddressBook[99].IsNil(): got false, want true")
 	}
 	if got := v.GetCity(); got != "" {
 		t.Errorf("AddressBook[99].GetCity(): got %q, want \"\"", got)
 	}
 }
 
-// TestPerson_TypedNil pins down the classic Go typed-nil behaviour at the
-// _Const boundary and documents it as an accepted, library-level contract
-// rather than a bug. It exists to prevent a future refactor from silently
-// changing the semantics that callers are expected to code against.
+// TestPerson_TypedNil documents the compile-time guarantee that removed
+// the classic Go typed-nil footgun from the _Const boundary.
 //
-// Setup: a *Person with Home == nil. Then:
+// Under the struct-wrapper scheme, a _Const view is a concrete struct
+// value holding an unexported `p *Message` pointer. That means:
 //
-//   - p.GetHome() is a proto3 nil-safe getter returning a typed *Address;
-//     because the static return type is a concrete pointer, the caller's
-//     == nil comparison does agree with "no Home set" here.
+//   - `view == nil` is a *compile error* (untyped nil cannot be compared
+//     to a struct type), so callers cannot accidentally write a check
+//     that silently disagrees with "is the backing message set".
 //
-//   - p.ConstHome() returns an Address_Const (interface). Go's implicit
-//     interface conversion boxes a typed (*Address)(nil) into a non-nil
-//     interface value (itab != nil, data == nil). The `view == nil`
-//     comparison therefore evaluates to false even though there is no
-//     Address behind it.
+//   - The only way to ask the nil-ness question is IsNil(), which
+//     inspects the underlying pointer directly — no interface boxing,
+//     no itab/data split, no surprises.
 //
-// The protoc-gen-go-const design deliberately trades this away for
-// nil-safe scalar reads — i.e. view.GetStreet() still returns "" rather
-// than panicking. Callers who need the "is there actually an Address"
-// signal must go through IsNil() instead of == nil; see TestPerson_IsNil.
+//   - Scalar getters still forward to the nil-safe protoc-gen-go
+//     getters on the concrete pointer, so reads on a nil-backed view
+//     never panic and yield the zero value.
+//
+// The three assertions below pin this down. A future refactor that
+// reintroduced an interface view would immediately fail
+// `TestPerson_TypedNil_CompileError` at build time (we keep the check
+// deliberately indirect via IsNil to keep `go vet` and humans happy).
 func TestPerson_TypedNil(t *testing.T) {
 	p := &Person{Name: "no-home"} // Home == nil
 
@@ -768,56 +679,56 @@ func TestPerson_TypedNil(t *testing.T) {
 		t.Fatal("GetHome(): want nil for unset Home field")
 	}
 
-	// Const-view getter: interface boxing of a typed nil pointer.
-	home := p.ConstHome()
-	if home == nil {
-		t.Fatal("ConstHome() == nil: got true, want false (typed-nil view is != nil by design)")
+	// Const-view getter: the view is a struct value. `home == nil`
+	// would not compile. IsNil() is the only supported nil-check and
+	// must report true for an unset message field.
+	home := p.AsConst().GetHome()
+	if !home.IsNil() {
+		t.Fatal("GetHome().IsNil() on unset Home: got false, want true")
 	}
 
 	// Nil-safe scalar read is still the whole point — this must not
 	// panic and must yield the zero value.
 	if got := home.GetStreet(); got != "" {
-		t.Errorf("ConstHome().GetStreet() on typed-nil view: got %q, want \"\"", got)
-	}
-
-	// The correct way to ask the question users usually mean by `== nil`.
-	if !home.IsNil() {
-		t.Error("ConstHome().IsNil() on unset Home: got false, want true")
+		t.Errorf("GetHome().GetStreet() on nil-backed view: got %q, want \"\"", got)
 	}
 }
 
-// TestPerson_IsNil is the positive-side companion of TestPerson_TypedNil:
-// it fixes the contract IsNil() must satisfy across every flavour of
-// _Const view the library ships — message pointers (both alive and nil),
-// Slice (scalar and Constable element types), and Map (scalar and
-// Constable value types) — including the *Map2.Get miss sentinel and the
-// Slice.Zero / Map.Zero sentinels.
+// TestPerson_IsNil fixes the contract IsNil() must satisfy across every
+// flavour of _Const view the library ships — message struct wrappers
+// (both alive and nil-backed), Slice (scalar and Constable element
+// types), and Map (scalar and Constable value types) — including the
+// Map2.Get miss sentinel.
+//
+// Under the struct-wrapper scheme IsNil() is also the *only* way to ask
+// the nil-ness question: a direct `view == nil` is a compile error. See
+// TestPerson_TypedNil for the matching compile-time-guarantee test.
 func TestPerson_IsNil(t *testing.T) {
-	// --- live *Message: IsNil() == false, view != nil. -------------------
+	// --- live *Message: IsNil() == false. --------------------------------
 	alive := newPerson().AsConst()
 	if alive.IsNil() {
 		t.Error("alive Person.IsNil(): got true, want false")
 	}
-	if alive.ConstHome().IsNil() {
-		t.Error("alive Person.ConstHome().IsNil(): got true, want false")
+	if alive.GetHome().IsNil() {
+		t.Error("alive Person.GetHome().IsNil(): got true, want false")
 	}
 
-	// --- unset child *Message: IsNil() == true, view != nil. -------------
+	// --- unset child *Message: IsNil() on the child == true. -------------
 	noHome := (&Person{}).AsConst()
 	if noHome.IsNil() {
 		t.Error("alive-but-empty Person.IsNil(): got true, want false")
 	}
-	if !noHome.ConstHome().IsNil() {
-		t.Error("noHome.ConstHome().IsNil(): got false, want true")
+	if !noHome.GetHome().IsNil() {
+		t.Error("noHome.GetHome().IsNil(): got false, want true")
 	}
-	// Typed-nil view must still be safely callable.
-	if got := noHome.ConstHome().GetStreet(); got != "" {
-		t.Errorf("noHome.ConstHome().GetStreet(): got %q, want \"\"", got)
+	// Nil-backed view must still be safely callable.
+	if got := noHome.GetHome().GetStreet(); got != "" {
+		t.Errorf("noHome.GetHome().GetStreet(): got %q, want \"\"", got)
 	}
 
 	// --- (*Person)(nil) at the root: AsConst() on nil receiver is safe
-	// (it is a plain "return x"), and IsNil() on the resulting view
-	// reports true.
+	// (it is a plain "return Person_Const{p: x}"), and IsNil() on the
+	// resulting view reports true.
 	var nilPerson *Person
 	nv := nilPerson.AsConst()
 	if !nv.IsNil() {
@@ -826,49 +737,48 @@ func TestPerson_IsNil(t *testing.T) {
 
 	// --- Slice[T]: IsNil() reports empty/nil underlying slice. ------------
 	c := newPerson().AsConst()
-	if c.ConstTags().IsNil() {
-		t.Error("populated ConstTags().IsNil(): got true, want false")
+	if c.GetTags().IsNil() {
+		t.Error("populated GetTags().IsNil(): got true, want false")
 	}
-	if c.ConstPrevAddresses().IsNil() {
-		t.Error("populated ConstPrevAddresses().IsNil(): got true, want false")
+	if c.GetPrevAddresses().IsNil() {
+		t.Error("populated GetPrevAddresses().IsNil(): got true, want false")
 	}
-	emptySlice := (&Person{}).AsConst().ConstTags()
+	emptySlice := (&Person{}).AsConst().GetTags()
 	if !emptySlice.IsNil() {
-		t.Error("empty ConstTags().IsNil(): got false, want true")
+		t.Error("empty GetTags().IsNil(): got false, want true")
 	}
-	emptySlice2 := (&Person{}).AsConst().ConstPrevAddresses()
+	emptySlice2 := (&Person{}).AsConst().GetPrevAddresses()
 	if !emptySlice2.IsNil() {
-		t.Error("empty ConstPrevAddresses().IsNil(): got false, want true")
+		t.Error("empty GetPrevAddresses().IsNil(): got false, want true")
 	}
 
 	// --- Map[K, V]: IsNil() reports empty/nil underlying map. -------------
-	if c.ConstAttributes().IsNil() {
-		t.Error("populated ConstAttributes().IsNil(): got true, want false")
+	if c.GetAttributes().IsNil() {
+		t.Error("populated GetAttributes().IsNil(): got true, want false")
 	}
-	if c.ConstAddressBook().IsNil() {
-		t.Error("populated ConstAddressBook().IsNil(): got true, want false")
+	if c.GetAddressBook().IsNil() {
+		t.Error("populated GetAddressBook().IsNil(): got true, want false")
 	}
-	emptyMap := (&Person{}).AsConst().ConstAttributes()
+	emptyMap := (&Person{}).AsConst().GetAttributes()
 	if !emptyMap.IsNil() {
-		t.Error("empty ConstAttributes().IsNil(): got false, want true")
+		t.Error("empty GetAttributes().IsNil(): got false, want true")
 	}
-	emptyMap2 := (&Person{}).AsConst().ConstAddressBook()
+	emptyMap2 := (&Person{}).AsConst().GetAddressBook()
 	if !emptyMap2.IsNil() {
-		t.Error("empty ConstAddressBook().IsNil(): got false, want true")
+		t.Error("empty GetAddressBook().IsNil(): got false, want true")
 	}
 
-	// --- Zero() sentinels: for Constable projections the element is a
-	// typed-nil view, so IsNil() must report true. -----------------------
-	if !c.ConstPrevAddresses().Zero().IsNil() {
-		t.Error("ConstPrevAddresses().Zero().IsNil(): got false, want true")
-	}
-	if !c.ConstAddressBook().Zero().IsNil() {
-		t.Error("ConstAddressBook().Zero().IsNil(): got false, want true")
+	// --- Zero-value (nil-backed) views: for Constable projections the
+	// Go zero value of the view struct is already a nil-backed view, so
+	// IsNil() must report true on it — no helper required. ------------
+	var zeroAddr Address_Const
+	if !zeroAddr.IsNil() {
+		t.Error("var zero Address_Const .IsNil(): got false, want true")
 	}
 
-	// --- _Map2.Get on a miss must return a view for which IsNil() is
+	// --- Map2.Get on a miss must return a view for which IsNil() is
 	// true and subsequent scalar getters are still safe. -----------------
-	m := c.ConstAddressBook()
+	m := c.GetAddressBook()
 	miss, ok := m.Get(99)
 	if ok {
 		t.Fatal("AddressBook[99]: ok=true, want false")
@@ -887,5 +797,53 @@ func TestPerson_IsNil(t *testing.T) {
 	}
 	if hit.IsNil() {
 		t.Error("AddressBook[1].IsNil(): got true, want false")
+	}
+}
+
+// TestPerson_NonComparable pins down the compile-time guarantee that
+// every view type the library produces — both the generated
+// <Message>_Const wrappers and the goconst.Slice / Slice2 / Map / Map2
+// collection views — is *not* comparable with `==`.
+//
+// The guarantee is delivered by embedding goconst.DoNotCompare
+// ([0]func()) in every view struct. A plain `a == b` on two such
+// values would be a compile error (and a future refactor that dropped
+// the marker would silently start compiling again), so we can't pin
+// the contract by writing an `==` line here directly. Instead we ask
+// the runtime-reflection equivalent via reflect.Type.Comparable(),
+// which returns false for exactly the same set of types the compiler
+// rejects `==` on.
+//
+// For Slice / Map this is partly already implied by the []T / map[K]V
+// payload field (slices and maps are themselves not comparable), but
+// the DoNotCompare embed makes it explicit at the type level and
+// keeps the contract stable even if the payload shape is ever
+// swapped out.
+func TestPerson_NonComparable(t *testing.T) {
+	cases := []struct {
+		name string
+		typ  reflect.Type
+	}{
+		// Generated message wrappers — the interesting case: the
+		// payload is a single *Message pointer, which *is* comparable,
+		// so non-comparability comes exclusively from the embedded
+		// goconst.DoNotCompare marker.
+		{"Address_Const", reflect.TypeOf(Address_Const{})},
+		{"Person_Const", reflect.TypeOf(Person_Const{})},
+		{"Person_Contact_Const", reflect.TypeOf(Person_Contact_Const{})},
+
+		// Collection views — documentary: the backing []T / map[K]V
+		// payload is already non-comparable on its own, but the
+		// embedded DoNotCompare marker pins the intent at the type
+		// level regardless.
+		{"Slice[string]", reflect.TypeOf(goconst.NewSlice[string](nil))},
+		{"Slice2[Address_Const,*Address]", reflect.TypeOf(goconst.NewSlice2[Address_Const, *Address](nil))},
+		{"Map[string,string]", reflect.TypeOf(goconst.NewMap[string, string](nil))},
+		{"Map2[int32,Address_Const,*Address]", reflect.TypeOf(goconst.NewMap2[int32, Address_Const, *Address](nil))},
+	}
+	for _, tc := range cases {
+		if tc.typ.Comparable() {
+			t.Errorf("%s: Comparable()=true, want false (missing goconst.DoNotCompare embed?)", tc.name)
+		}
 	}
 }

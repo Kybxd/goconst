@@ -5,9 +5,9 @@ in [`../cmd/protoc-gen-go-const/main.go`](../cmd/protoc-gen-go-const/main.go).
 They double as a living integration test: the generated `.pb.go` /
 `.const.pb.go` files are checked in as **golden output**, and each
 generated Go package ships a `*_const_test.go` that exercises the
-emitted `*_Const` interfaces (run with `go test ./examples/...`). After
-any change to the generator, regenerate here and inspect the diff under
-`gen/go/`, then run the tests.
+emitted `*_Const` struct wrappers (run with `go test ./examples/...`).
+After any change to the generator, regenerate here and inspect the diff
+under `gen/go/`, then run the tests.
 
 For the *why* and *how* of the `*_Const` views, the plugin wiring, and
 the `--exclude_packages` flag (including the rule about well-known
@@ -37,7 +37,7 @@ for the rationale and the pinned versions used by [buf.gen.yaml](buf.gen.yaml).
 Output goes to `examples/gen/go/<leaf>/`, two files per proto:
 
 * `xxx.pb.go`       — standard protobuf Go structs
-* `xxx.const.pb.go` — our `*_Const` read-only interface views
+* `xxx.const.pb.go` — our `*_Const` read-only struct views
 
 This directory intentionally has **no `.gitignore`**: the generated
 files are checked in so they act as golden output for the generator.
@@ -53,7 +53,7 @@ go test ./examples/...
 ```
 
 Each generated Go package has a sibling `*_const_test.go` that exercises
-the emitted `*_Const` interface against the concrete `*Message`.
+the emitted `*_Const` struct wrapper against the concrete `*Message`.
 
 ## Toggling `--exclude_packages`
 
@@ -76,17 +76,17 @@ subpackages, in one line.
 With both on you can verify (mainly in
 [`gen/go/importer/importer.const.pb.go`](gen/go/importer/importer.const.pb.go)):
 
-* No `External_Const` interface is emitted for the `external` package
+* No `External_Const` type is emitted for the `external` package
   (its `.const.pb.go` may be absent entirely).
 * Inside `Envelope_Const`:
   * `GetExt()`           returns `*external.External` (concrete type,
-    signature unchanged from the concrete getter, so no `Const` prefix).
-  * `ConstExtras()`   returns `goconst.Slice[*external.External]`.
-  * `ConstExtMap()`   returns `goconst.Map[string, *external.External]`.
+    signature unchanged from the concrete getter, verbatim forward).
+  * `GetExtras()`   returns `goconst.Slice[*external.External]`.
+  * `GetExtMap()`   returns `goconst.Map[string, *external.External]`.
   * `GetCreatedAt()`     returns `*timestamppb.Timestamp` (unchanged).
-  * `ConstHistory()`  returns `goconst.Slice[*timestamppb.Timestamp]`.
-  * `ConstTsMap()`    returns `goconst.Map[string, *timestamppb.Timestamp]`.
-  * None of the emitted companions call `.AsConst()` on excluded values.
+  * `GetHistory()`  returns `goconst.Slice[*timestamppb.Timestamp]`.
+  * `GetTsMap()`    returns `goconst.Map[string, *timestamppb.Timestamp]`.
+  * None of the emitted forwarders call `.AsConst()` on excluded values.
   * `Clone()`            returns a fresh, mutable `*Envelope` (delegates
     to `proto.Clone`); the copy is independent of the source even
     across the excluded `*external.External` and WKT pointer fields,
@@ -95,9 +95,16 @@ With both on you can verify (mainly in
 
 To see the **opposite** behaviour for the in-repo `external` package,
 comment its `exclude_packages=...` line out and rerun `buf generate`:
-the same getters will then return `External_Const` views (and be renamed
-to `ConstExt() / ConstExtras() / ConstExtMap()`) with
-`.AsConst()` chained under the hood.
+the same `GetExt()` / `GetExtras()` / `GetExtMap()` methods will then
+return `External_Const` views with `.AsConst()` chained under the
+hood. The `Slice` / `Map` return types in the generated code will also
+switch to the `Slice2` / `Map2` flavours —
+`goconst.Slice2[External_Const, *external.External]` and
+`goconst.Map2[string, External_Const, *external.External]` — which
+apply the `AsConst()` projection on access. The rule is: **`Slice2` /
+`Map2` appear whenever the element / value is a message from a
+non-excluded package**, and `Slice` / `Map` appear for scalar element /
+value types and for messages from excluded packages.
 
 > ⚠️ Do **not** narrow / remove the WKT glob without first removing
 > the WKT fields from `importer.proto` — the output would reference a

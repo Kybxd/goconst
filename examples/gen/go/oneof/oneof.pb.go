@@ -28,9 +28,9 @@ const (
 
 // Event has an exactly-one payload: either a scalar string, an int or an
 // Address (imported from the nested package). The generated Event_Const
-// interface must:
+// wrapper must:
 //   - expose Get{Note,Count}() returning scalars
-//   - expose ConstLocation() returning nested.Address_Const
+//   - expose GetLocation() returning nested.Address_Const
 //   - leave Event's oneof case accessor alone (generator currently emits
 //     only field-level getters, which is what we want to verify).
 type Event struct {

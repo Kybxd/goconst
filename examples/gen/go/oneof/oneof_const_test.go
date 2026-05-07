@@ -30,11 +30,11 @@ func TestEvent_OneofArm_Note(t *testing.T) {
 	if c.GetCount() != 0 {
 		t.Errorf("Count arm should be zero when not selected: got %d", c.GetCount())
 	}
-	// ConstLocation must return a typed non-nil interface whose backing value
-	// is a nil *Address; its scalar getters must all return zero values.
-	loc := c.ConstLocation()
-	if loc == nil {
-		t.Fatal("ConstLocation must return typed non-nil interface")
+	// GetLocation must return a nil-backed struct view whose scalar
+	// getters all return zero values (the oneof arm is not selected).
+	loc := c.GetLocation()
+	if !loc.IsNil() {
+		t.Fatal("GetLocation on wrong oneof arm: IsNil() = false, want true")
 	}
 	if loc.GetCity() != "" {
 		t.Errorf("Location on wrong arm: GetCity=%q, want \"\"", loc.GetCity())
@@ -55,15 +55,15 @@ func TestEvent_OneofArm_Count(t *testing.T) {
 
 // TestEvent_OneofArm_Location: when payload=Location, the _Const view must
 // project it through AsConst and return a nested.Address_Const (under the
-// direct-style API, that projection is exposed as ConstLocation()).
+// direct-style API, that projection is exposed as GetLocation()).
 func TestEvent_OneofArm_Location(t *testing.T) {
 	addr := &nested.Address{Street: "Elm", City: "Paris", Zip: "75000"}
 	e := &Event{Id: "e3", Payload: &Event_Location{Location: addr}}
 	c := e.AsConst()
 
-	loc := c.ConstLocation()
-	if loc == nil {
-		t.Fatal("Location: nil _Const")
+	loc := c.GetLocation()
+	if loc.IsNil() {
+		t.Fatal("Location: nil-backed _Const view")
 	}
 	// Static-type assertion: cross-file arm must return the _Const view.
 	var _ nested.Address_Const = loc
@@ -78,9 +78,9 @@ func TestEvent_OneofArm_UnsetAll(t *testing.T) {
 	if c.GetNote() != "" || c.GetCount() != 0 {
 		t.Errorf("unset arms not zero: note=%q count=%d", c.GetNote(), c.GetCount())
 	}
-	loc := c.ConstLocation()
-	if loc == nil {
-		t.Fatal("ConstLocation on empty Event must return typed non-nil")
+	loc := c.GetLocation()
+	if !loc.IsNil() {
+		t.Fatal("GetLocation on empty Event: IsNil() = false, want true")
 	}
 	if loc.GetCity() != "" {
 		t.Errorf("unset Location.City: got %q", loc.GetCity())
