@@ -252,107 +252,62 @@ func TestPerson_NestedType(t *testing.T) {
 
 // ---- Benchmarks ------------------------------------------------------------
 
-// benchNestedSink is deliberately NOT `any`: assigning a concrete struct
-// view (goconst.Slice / Slice2 / Map / Map2) to an `any`-typed sink would
-// box it into an interface header, adding a 24 B / 1 alloc measurement
-// artefact that has nothing to do with the view itself. Typed per-kind
-// sinks avoid that.
+// Typed package-level sinks keep the compiler from optimising the measured
+// expression away while also avoiding an `any`-typed sink: assigning to
+// `var sink any` boxes the stored value into an interface header (24 B /
+// 1 alloc on amd64) which would show up in -benchmem output and has
+// nothing to do with the code under test. One sink per Go type used by
+// the benchmarks below is enough.
 var (
-	benchNestedSinkSliceString  goconst.Slice[string]
-	benchNestedSinkSlice2Addr   Address_ConstSlice
-	benchNestedSinkMapScalar    goconst.Map[string, string]
-	benchNestedSinkMap2Addr     Address_ConstMap[int64]
-	benchNestedSinkInt          int
-	benchNestedSinkAddrConst    Address_Const
+	benchNestedSinkInt    int
+	benchNestedSinkString string
 )
 
-func BenchmarkNested_NewSlice_Scalar(b *testing.B) {
-	c := newPerson().AsConst()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchNestedSinkSliceString = c.GetTags()
-	}
-}
+// ---- chained getter benchmark ---------------------------------------------
+//
+// Compare a chained getter call on the raw *Message vs on its _Const view.
+// This pins down the key ergonomic claim of the wrapper: routing every
+// field access through a one-line forwarder (e.g. `c.p.GetHome().AsConst()`
+// for a singular message, `c.p.GetStreet()` for a scalar) does not introduce
+// allocations, and — once the forwarders inline — matches the raw proto
+// getter chain to within noise.
+//
+// The chain under test is GetHome().GetStreet():
+//
+//   Raw:   p.GetHome().GetStreet()              (*Address -> string)
+//   Const: c.GetHome().GetStreet()              (Address_Const -> string)
+//
+// Both paths terminate in a plain string read, so the only variable between
+// Raw and Const is the wrapper layer itself. A second chain through a
+// *nested* message type (e.g. GetContact().GetEmail()) was considered but
+// omitted: nested types share the exact same generated-code shape
+// (`DoNotCompare` + single `*T` pointer, zero-cost `AsConst()` constructor),
+// so an extra bench would just re-measure the same signal while inviting a
+// false "nested is slower" reading out of sub-nanosecond noise.
 
-func BenchmarkNested_NewSlice2_Message(b *testing.B) {
-	c := newPerson().AsConst()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchNestedSinkSlice2Addr = c.GetPrevAddresses()
-	}
-}
-
-func BenchmarkNested_NewMap_Scalar(b *testing.B) {
-	c := newPerson().AsConst()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchNestedSinkMapScalar = c.GetAttributes()
-	}
-}
-
-func BenchmarkNested_NewMap2_Message(b *testing.B) {
-	c := newPerson().AsConst()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		benchNestedSinkMap2Addr = c.GetAddressBook()
-	}
-}
-
-// Compare native slice range vs Slice[T].All() iteration.
-func BenchmarkNested_Iter_TagsRaw(b *testing.B) {
+func BenchmarkNested_ChainedGet(b *testing.B) {
 	p := newPerson()
-	b.ReportAllocs()
-	b.ResetTimer()
-	var n int
-	for i := 0; i < b.N; i++ {
-		for range p.Tags {
-			n++
-		}
-	}
-	benchNestedSinkInt = n
-}
+	c := p.AsConst()
 
-func BenchmarkNested_Iter_TagsViaAll(b *testing.B) {
-	c := newPerson().AsConst()
-	s := c.GetTags()
-	b.ReportAllocs()
-	b.ResetTimer()
-	var n int
-	for i := 0; i < b.N; i++ {
-		for range s.All() {
-			n++
+	b.Run("Raw", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var s string
+		for i := 0; i < b.N; i++ {
+			s = p.GetHome().GetStreet()
 		}
-	}
-	benchNestedSinkInt = n
-}
+		benchNestedSinkString = s
+	})
 
-func BenchmarkNested_Iter_PrevAddressesViaAll(b *testing.B) {
-	c := newPerson().AsConst()
-	s := c.GetPrevAddresses()
-	b.ReportAllocs()
-	b.ResetTimer()
-	var n int
-	for i := 0; i < b.N; i++ {
-		for _, a := range s.All() {
-			_ = a.GetStreet()
-			n++
+	b.Run("Const", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		var s string
+		for i := 0; i < b.N; i++ {
+			s = c.GetHome().GetStreet()
 		}
-	}
-	benchNestedSinkInt = n
-}
-
-func BenchmarkNested_Map_GetHit(b *testing.B) {
-	m := newPerson().AsConst().GetAddressBook()
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		v, _ := m.Get(1)
-		benchNestedSinkAddrConst = v
-	}
+		benchNestedSinkString = s
+	})
 }
 
 // ---- iteration-overhead benchmark matrix -----------------------------------
