@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.2"
+const version = "0.4.3"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the emitted Clone() method on each Message_Const wrapper
@@ -25,6 +25,33 @@ const protoPackage = protogen.GoImportPath("google.golang.org/protobuf/proto")
 // views and the NewSlice / NewSlice2 / NewMap / NewMap2 constructors used
 // by generated *_Const views for repeated / map fields.
 const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
+
+// builtinExcludePackagePatterns is the list of doublestar glob patterns
+// that are *always* applied on top of the user-supplied --exclude_packages
+// values. They cover packages whose .pb.go output is produced by the
+// upstream protoc-gen-go and therefore has no *_Const / AsConst — without
+// these defaults, generated code would project e.g. *timestamppb.Timestamp
+// through a non-existent Timestamp_Const and fail to compile.
+//
+// Currently this is exactly the well-known-types subtree:
+//
+//	google.golang.org/protobuf/types/known/**
+//
+// covering timestamppb / durationpb / anypb / wrapperspb / structpb /
+// fieldmaskpb / emptypb / apipb / sourcecontextpb / typepb (and any
+// future nested subpackages added by the upstream protobuf-go repo).
+// The proto package these all share is google.protobuf — a stable,
+// closed protocol-level identity — and the upstream go_package option
+// is hard-coded into the .proto sources, so this Go-import-path glob
+// is the canonical match for them.
+//
+// Users do not need to repeat this pattern in --exclude_packages; an
+// explicit entry is harmless (matches degenerate to a single hit
+// either way) and stays supported for backwards compatibility with
+// existing buf.gen.yaml files.
+var builtinExcludePackagePatterns = []string{
+	"google.golang.org/protobuf/types/known/**",
+}
 
 // ---------------------------------------------------------------------------
 // Plugin entry point
@@ -92,12 +119,13 @@ func main() {
 			"the field's owning Go import path with doublestar (gitignore- / "+
 			"bash globstar-style) semantics, so plain paths work as exact "+
 			"matches, `*` / `?` match within a single path segment, and a "+
-			"recursive `**` segment matches any number of subpackages (e.g. "+
-			"`google.golang.org/protobuf/types/known/**` excludes every WKT "+
-			"package, including nested ones, in one line). Fields whose "+
-			"type comes from a matching package keep their concrete *Type "+
-			"in the enclosing _Const view and do not get .AsConst() called "+
-			"on them.")
+			"recursive `**` segment matches any number of subpackages. "+
+			"Fields whose type comes from a matching package keep their "+
+			"concrete *Type in the enclosing _Const view and do not get "+
+			".AsConst() called on them. The well-known-types subtree "+
+			"(`google.golang.org/protobuf/types/known/**`) is excluded "+
+			"automatically and does not need to be listed here; see the "+
+			"plugin README for the rationale.")
 
 	protogen.Options{
 		ParamFunc: flags.Set,
@@ -150,10 +178,14 @@ type Generator struct {
 }
 
 // NewGenerator returns a Generator bound to a single input file. The
-// excludePackages slice is trimmed and stored as a list of doublestar
-// glob patterns.
+// excludePackages slice is trimmed and concatenated with the always-on
+// builtinExcludePackagePatterns (currently just the well-known-types
+// subtree) into a single doublestar pattern list. Order does not matter
+// — matchExcludePattern short-circuits on the first hit — so the
+// builtins are appended verbatim and a duplicate user entry is
+// harmless.
 func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []string) *Generator {
-	patterns := make([]string, 0, len(excludePackages))
+	patterns := make([]string, 0, len(excludePackages)+len(builtinExcludePackagePatterns))
 	for _, pkg := range excludePackages {
 		pkg = strings.TrimSpace(pkg)
 		if pkg == "" {
@@ -161,6 +193,7 @@ func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []s
 		}
 		patterns = append(patterns, pkg)
 	}
+	patterns = append(patterns, builtinExcludePackagePatterns...)
 	return &Generator{
 		gen:                    gen,
 		file:                   file,

@@ -566,8 +566,9 @@ plugins:
     opt:
       - paths=source_relative
       # Optional, see "exclude_packages" below. Each entry is a doublestar
-      # glob, so the line below recursively excludes every WKT subpackage.
-      # - exclude_packages=google.golang.org/protobuf/types/known/**
+      # glob; the well-known-types subtree
+      # (`google.golang.org/protobuf/types/known/**`) is excluded
+      # automatically and does not need to be listed here.
     strategy: all
 ```
 
@@ -605,31 +606,56 @@ collection view):
 opt:
   # Exact path — the legacy "list of Go import paths" usage.
   - exclude_packages=github.com/you/yourrepo/gen/go/proto/external
-  # Recursive glob — covers every WKT subpackage (timestamppb, durationpb,
-  # anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …) in one line,
-  # including any nested subpackages.
-  - exclude_packages=google.golang.org/protobuf/types/known/**
 ```
 
 [doublestar]: https://github.com/bmatcuk/doublestar
 
-Typical use cases:
+### Built-in defaults: well-known types are excluded automatically
+
+The plugin always applies one default exclude pattern on top of any
+`--exclude_packages` you provide:
+
+```
+google.golang.org/protobuf/types/known/**
+```
+
+This recursive glob covers every WKT subpackage (`timestamppb`,
+`durationpb`, `anypb`, `wrapperspb`, `structpb`, `fieldmaskpb`,
+`emptypb`, `apipb`, `sourcecontextpb`, `typepb`, including any nested
+subpackages added upstream). You **never** need to list it in
+`--exclude_packages`; an explicit entry stays accepted for backwards
+compatibility but is now redundant.
+
+The reason WKT support has to be a hard-coded default rather than an
+opt-in:
+
+1. **WKTs ship without any `*_Const` / `AsConst()`.** They are produced
+   by the upstream `protocolbuffers/go` plugin in
+   `google.golang.org/protobuf/types/known/**`, which this plugin does
+   not run against. Without the default exclude, a `_Const` wrapper
+   that referenced e.g. `google.protobuf.Timestamp` would project the
+   field through a non-existent `timestamppb.Timestamp_Const` and the
+   generated file would not compile.
+2. **WKT semantics live in hand-written-looking helpers
+   (`AsTime` / `AsDuration` / `UnmarshalTo` / `AsMap` / …) that
+   `protoc-gen-go` injects via a hard-coded special case for
+   `google.protobuf.*`.** Those methods cannot be reproduced by a
+   third-party generator, so a `_Const` wrapper around a WKT would
+   strictly *lose* API surface compared to the concrete pointer.
+3. **The `google.protobuf` proto package is a stable, closed
+   protocol-level identity.** The upstream `option go_package = …`
+   on each WKT `.proto` is hard-coded into the source files, so the
+   Go-import-path glob above is the canonical match for WKTs in
+   practice.
+
+### Other typical use cases for explicit excludes
 
 1. **Third-party / vendored protos** you don't own and therefore don't
    run this generator against.
-2. **Well-known types** (`google.protobuf.Timestamp`, `Duration`, `Any`,
-   `Wrappers*`, …). These are produced by the upstream
-   `protocolbuffers/go` plugin and **ship without any `*_Const` /
-   `AsConst()`**. If you import a WKT in your own proto and leave its Go
-   package out of `exclude_packages`, the generated `_Const` wrapper
-   will project a field through a nonexistent
-   `timestamppb.Timestamp_Const` type and the file will not compile.
-
-**Rule of thumb:** exclude every WKT package you import. The single
-recursive glob `google.golang.org/protobuf/types/known/**` matches all
-of them (`.../timestamppb`, `.../durationpb`, `.../anypb`,
-`.../wrapperspb`, …, including any nested subpackages) and is the
-recommended default for projects that touch any WKT.
+2. **Project-internal "boundary" packages** that you want to keep on
+   their concrete `*Message` API for one reason or another (e.g. a
+   widely-imported leaf package whose callers all rely on `proto.Marshal`
+   directly).
 
 ## Project layout
 

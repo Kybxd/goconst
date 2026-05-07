@@ -60,23 +60,26 @@ the emitted `*_Const` struct wrapper against the concrete `*Message`.
 
 ## Toggling `--exclude_packages`
 
-[`buf.gen.yaml`](buf.gen.yaml) ships with two `exclude_packages` entries
-enabled — one exact path, one recursive glob:
+[`buf.gen.yaml`](buf.gen.yaml) ships with one `exclude_packages` entry
+enabled — an exact path covering the in-repo `external` package:
 
 ```yaml
 - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
-- exclude_packages=google.golang.org/protobuf/types/known/**
 ```
 
+The well-known-types subtree
+(`google.golang.org/protobuf/types/known/**`) is excluded
+*automatically* by the plugin and does not appear in `buf.gen.yaml`.
+See the [root README → `--exclude_packages`](../README.md#flag---exclude_packages)
+for why that default is hard-coded.
+
 Each entry is matched against a field's owning Go import path with
-[doublestar][doublestar] (gitignore- / bash globstar-style) semantics, so
-the second line recursively excludes **every** WKT subpackage
-(timestamppb, durationpb, anypb, wrapperspb, …), including any nested
-subpackages, in one line.
+[doublestar][doublestar] (gitignore- / bash globstar-style) semantics.
 
 [doublestar]: https://github.com/bmatcuk/doublestar
 
-With both on you can verify (mainly in
+With the explicit `external` exclude on (and the WKT subtree implicitly
+excluded by the built-in default), you can verify (mainly in
 [`gen/go/importer/importer.const.pb.go`](gen/go/importer/importer.const.pb.go)):
 
 * No `External_Const` type is emitted for the `external` package
@@ -86,7 +89,9 @@ With both on you can verify (mainly in
     signature unchanged from the concrete getter, verbatim forward).
   * `GetExtras()`   returns `goconst.Slice[*external.External]`.
   * `GetExtMap()`   returns `goconst.Map[string, *external.External]`.
-  * `GetCreatedAt()`     returns `*timestamppb.Timestamp` (unchanged).
+  * `GetCreatedAt()`     returns `*timestamppb.Timestamp` (unchanged
+    — covered by the built-in WKT default exclude, no `--exclude_packages`
+    entry needed).
   * `GetHistory()`  returns `goconst.Slice[*timestamppb.Timestamp]`.
   * `GetTsMap()`    returns `goconst.Map[string, *timestamppb.Timestamp]`.
   * None of the emitted forwarders call `.AsConst()` on excluded values.
@@ -111,8 +116,8 @@ appear whenever the element / value is a message from a non-excluded
 package**, and `Slice` / `Map` appear for scalar element / value types
 and for messages from excluded packages.
 
-> ⚠️ Do **not** narrow / remove the WKT glob without first removing
-> the WKT fields from `importer.proto` — the output would reference a
-> non-existent `timestamppb.Timestamp_Const` and fail to compile. See
-> [root README → `--exclude_packages`](../README.md#flag---exclude_packages)
-> for the general rule.
+> ℹ️ The WKT fields on `importer.proto` (`created_at`, `history`,
+> `ts_map`) are kept on the concrete `*timestamppb.Timestamp` type by
+> the plugin's built-in default exclude — there is no way to "narrow"
+> that default from `buf.gen.yaml`, so removing the WKT fields from
+> the proto is the only way to remove them from the generated output.

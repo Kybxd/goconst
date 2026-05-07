@@ -1,8 +1,11 @@
 // Unit tests for the generated Envelope_Const view. The primary goal here
-// is to pin the --exclude_packages contract at the Go type level:
+// is to pin the exclude-packages contract at the Go type level:
 //
-//   - testdata.external  is excluded:  getters keep *external.External
-//   - google.protobuf.*  is excluded:  getters keep *timestamppb.Timestamp
+//   - testdata.external  is excluded via --exclude_packages: getters keep
+//     *external.External
+//   - google.protobuf.*   is excluded *automatically* by the plugin
+//     (built-in default for google.golang.org/protobuf/types/known/**):
+//     getters keep *timestamppb.Timestamp
 //   - testdata.nested    is NOT excluded: getters return Address_Const
 //
 // The static "var _ T = ..." assertions inside each test enforce these
@@ -111,10 +114,11 @@ func TestEnvelope_Excluded_MapKeepsConcrete(t *testing.T) {
 }
 
 // TestEnvelope_WKT_TimestampExcluded pins the same contract for WKTs:
-// google.protobuf.Timestamp has no _Const of its own, so it must be
-// present in --exclude_packages and its getters must therefore keep the
-// concrete *timestamppb.Timestamp type in singular / repeated / map
-// positions.
+// google.protobuf.Timestamp has no _Const of its own, so the plugin
+// excludes the well-known-types subtree by default and its getters
+// must therefore keep the concrete *timestamppb.Timestamp type in
+// singular / repeated / map positions — without the user listing
+// google.golang.org/protobuf/types/known/** in --exclude_packages.
 func TestEnvelope_WKT_TimestampExcluded(t *testing.T) {
 	env, _, ts := newEnvelope()
 	c := env.AsConst()

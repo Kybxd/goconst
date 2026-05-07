@@ -23,11 +23,8 @@ plugins:
       # any number of subpackages. Enabled by default below; comment a line
       # out to see how generation looks without that exclusion.
       - exclude_packages=github.com/Kybxd/goconst/examples/gen/go/external
-      # Well-known types ship without any *_Const / AsConst of their own, so
-      # they must be excluded explicitly — otherwise generated code would
-      # call .AsConst() on e.g. *timestamppb.Timestamp and fail to build.
-      # The `**` glob below covers every WKT subpackage (timestamppb,
-      # durationpb, anypb, wrapperspb, structpb, fieldmaskpb, emptypb, …)
-      # in one line, including any nested subpackages.
-      - exclude_packages=google.golang.org/protobuf/types/known/**
+      # NOTE: well-known types (google.golang.org/protobuf/types/known/**)
+      # are now excluded *automatically* by the plugin — no need to list
+      # them here. The repository-importer test still pins this contract
+      # at the Go type level via importer/importer_const_test.go.
     strategy: all
