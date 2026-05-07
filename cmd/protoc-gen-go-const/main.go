@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.0"
+const version = "0.4.1"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the emitted Clone() method on each Message_Const wrapper
@@ -294,14 +294,16 @@ func (x *Generator) protocVersion() string {
 //     than a panic); String prints the underlying *Message via fmt,
 //     so the view renders exactly like the raw message would and the
 //     nil case prints "<nil>".
-//  5. A compile-time witness `var _ goconst.Constable[Message_Const] =
-//     (*Message)(nil)` so dropping or renaming AsConst on the concrete
-//     pointer surfaces as a build error here rather than as a
-//     constraint-not-satisfied diagnostic at a downstream
-//     NewSlice2 / NewMap2 call site.
-//  6. Recursion into nested (non-map-entry) messages, so that a nested
+//  5. Recursion into nested (non-map-entry) messages, so that a nested
 //     Address or Contact type emits its own _Const API in the same
 //     file.
+//
+// No separate `var _ goconst.Constable[Message_Const] = (*Message)(nil)`
+// witness is emitted: the two collection aliases in step 1b (Slice2 /
+// Map2 both constrain their storage parameter to Constable[T_Const]) are
+// already elaborated in the same file and fail the build in exactly the
+// same way if AsConst is dropped or renamed, so an explicit witness
+// would be redundant.
 func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g := x.g()
 	msgName := message.GoIdent.GoName
@@ -350,6 +352,13 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// view is uniform: callers can form
 	// `var s <Msg>_ConstSlice = other.GetXs()` regardless of which parent
 	// field they are pulling the collection out of.
+	//
+	// These two aliases also act as the compile-time witness that
+	// *<Msg> satisfies goconst.Constable[<Msg>_Const]: Slice2 / Map2
+	// both constrain their storage parameter to Constable[T_Const], so
+	// elaborating the alias lines forces the same check that a
+	// `var _ goconst.Constable[<Msg>_Const] = (*<Msg>)(nil)` witness
+	// would — making a separate witness redundant.
 	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
 		"[", msgName, "_Const, *", msgName, "]")
 	g.P("type ", msgName, "_ConstMap[K comparable] = ",
@@ -371,19 +380,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
-	// --- (3) Compile-time Constable witness -------------------------------
-	//
-	// `(*Message).AsConst() Message_Const` is the method that makes
-	// *Message satisfy goconst.Constable[Message_Const]. Asserting the
-	// constraint here pins that relationship at the file level, so a
-	// typo or rename on AsConst fails the build here instead of
-	// downstream at a NewSlice2 / NewMap2 instantiation site whose
-	// error would point at the wrong line.
-	g.P("var _ ", g.QualifiedGoIdent(goconstPackage.Ident("Constable")), "[",
-		msgName, "_Const] = (*", msgName, ")(nil)")
-	g.P()
-
-	// --- (4) Forwarding methods for every field ---------------------------
+	// --- (3) Forwarding methods for every field ---------------------------
 	//
 	// All forwarding methods are named Get<Name> to mirror the concrete
 	// *Message getter spelling. The split between genPlainGetter and
@@ -400,7 +397,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 		x.genPlainGetter(message, field)
 	}
 
-	// --- (5) IsNil / Clone / String on Message_Const ----------------------
+	// --- (4) IsNil / Clone / String on Message_Const ----------------------
 	//
 	// IsNil is the positive nil predicate. Because Message_Const is a
 	// concrete struct (not an interface), `view == nil` is a compile
@@ -436,7 +433,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
-	// --- (6) Recurse into nested messages ---------------------------------
+	// --- (5) Recurse into nested messages ---------------------------------
 	//
 	// Skip synthetic map-entry messages (e.g. Foo.AttributesEntry): they
 	// are plumbing for the map<K,V> syntax in proto3 and are never meant

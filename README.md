@@ -117,8 +117,6 @@ type Envelope_ConstMap[K comparable] = goconst.Map2[K, Envelope_Const, *Envelope
 // AsConst returns x wrapped as its read-only Envelope_Const view.
 func (x *Envelope) AsConst() Envelope_Const { return Envelope_Const{p: x} }
 
-var _ goconst.Constable[Envelope_Const] = (*Envelope)(nil)
-
 func (c Envelope_Const) GetId() string { return c.p.GetId() }
 
 func (c Envelope_Const) GetAddr() Address_Const {
