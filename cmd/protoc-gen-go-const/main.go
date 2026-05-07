@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.1"
+const version = "0.4.2"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the emitted Clone() method on each Message_Const wrapper
@@ -33,11 +33,12 @@ const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
 // Generation shape (wrapper-struct design):
 //
 //   - For every message Foo, emit
-//     `type Foo_Const struct { goconst.DoNotCompare; p *Foo }` —
+//     `type Foo_Const struct { _ goconst.DoNotCompare; p *Foo }` —
 //     a concrete struct whose sole payload is an unexported *Foo
-//     pointer. The embedded goconst.DoNotCompare is a zero-width
-//     [0]func() marker that makes `view == view` a compile error
-//     (pointer-equality on wrapper values is meaningless: two views
+//     pointer. The blank-named goconst.DoNotCompare field is a
+//     zero-width [0]func() marker that makes `view == view` a
+//     compile error (pointer-equality on wrapper values is
+//     meaningless: two views
 //     of semantically-equal messages would compare unequal). Every
 //     read on the view forwards through `c.p.<getter>()`, so the
 //     whole view is nil-safe whenever the underlying protoc-gen-go
@@ -58,7 +59,7 @@ const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
 //     callers have a positive nil predicate (both the `view == nil`
 //     spelling and the `view == Foo_Const{}` spelling are compile
 //     errors — the former because Foo_Const is a struct, the latter
-//     because of the embedded goconst.DoNotCompare marker).
+//     because of the blank-named goconst.DoNotCompare field).
 //   - Emit `func (c Foo_Const) Clone() *Foo` as the escape hatch out
 //     of the read-only world (delegates to proto.Clone with a nil
 //     guard).
@@ -273,9 +274,10 @@ func (x *Generator) protocVersion() string {
 // that make up the wrapper-struct _Const shape:
 //
 //  1. The Message_Const struct type. It has a single unexported payload
-//     field `p *Message` and embeds goconst.DoNotCompare (a zero-width
-//     [0]func() marker that makes `view == view` a compile error); no
-//     other embedding, so no method on *Message leaks onto the view
+//     field `p *Message` and carries goconst.DoNotCompare as a
+//     blank-named field (a zero-width [0]func() marker that makes
+//     `view == view` a compile error); no embedding, so no method on
+//     *Message leaks onto the view
 //     beyond what this generator explicitly forwards.
 //  2. AsConst on *Message, returning Message_Const{p: x}. This is how
 //     *Message satisfies goconst.Constable[Message_Const] and how
@@ -316,17 +318,25 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// read-only contract is enforced by the Go type system itself, not
 	// by convention.
 	//
-	// goconst.DoNotCompare is a zero-width [0]func() marker embedded so
-	// that `a == b` on two Message_Const values is a compile error: two
-	// views that wrap different *Message pointers would compare unequal
-	// even when the wrapped messages are semantically equal, so pointer-
-	// equality on views is never the question callers want to ask — and
-	// letting the compiler reject it is cleaner than documenting around
-	// it. Callers who really want identity on the underlying pointer
-	// can compare *Message values directly.
+	// goconst.DoNotCompare is a zero-width [0]func() marker carried as a
+	// blank-named field (`_ goconst.DoNotCompare`) so that `a == b` on
+	// two Message_Const values is a compile error: two views that wrap
+	// different *Message pointers would compare unequal even when the
+	// wrapped messages are semantically equal, so pointer-equality on
+	// views is never the question callers want to ask — and letting
+	// the compiler reject it is cleaner than documenting around it.
+	// Callers who really want identity on the underlying pointer can
+	// compare *Message values directly.
+	//
+	// The field is deliberately *not* embedded: with a blank name it
+	// still contributes layout (and thus non-comparability) but is
+	// unreachable by selector — `v.DoNotCompare = ...`, `&v.DoNotCompare`,
+	// and struct-literal `Message_Const{DoNotCompare: ...}` all fail
+	// to compile, and any future method added to DoNotCompare does
+	// not get promoted onto Message_Const.
 	g.P("// ", msgName, "_Const is a read-only wrapper view of *", msgName, ".")
 	g.P("type ", msgName, "_Const struct {")
-	g.P(g.QualifiedGoIdent(goconstPackage.Ident("DoNotCompare")))
+	g.P("_ ", g.QualifiedGoIdent(goconstPackage.Ident("DoNotCompare")))
 	g.P("p *", msgName)
 	g.P("}")
 	g.P()

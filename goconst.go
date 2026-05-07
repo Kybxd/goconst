@@ -65,20 +65,38 @@ type Constable[T any] interface {
 }
 
 // DoNotCompare is a zero-width, non-comparable marker type intended to
-// be embedded in a struct to make the whole struct non-comparable at
-// compile time. Because [0]func() occupies no memory but is itself
-// non-comparable, `a == b` on any struct that embeds DoNotCompare is
-// a compile error, while the struct layout and zero value remain
-// otherwise unchanged.
+// be carried as a field in a struct to make the whole struct non-
+// comparable at compile time. Because [0]func() occupies no memory but
+// is itself non-comparable, `a == b` on any struct that carries a
+// DoNotCompare field is a compile error, while the struct layout and
+// zero value remain otherwise unchanged.
 //
-// It is embedded in every collection view type defined in this package
-// ([Slice] / [Slice2] / [Map] / [Map2]) and in every <Message>_Const
-// wrapper struct produced by protoc-gen-go-const, so that pointer-
-// equality reasoning on wrapper values — which would be meaningless
-// on a view whose sole semantic content is the forwarded-to message —
-// surfaces as a build error rather than as a silently-wrong check.
-// Cf. google.golang.org/protobuf/internal/pragma.DoNotCompare, from
-// which this pattern is borrowed.
+// The recommended form is a blank-named field:
+//
+//	type Foo struct {
+//		_ goconst.DoNotCompare
+//		// ...other fields...
+//	}
+//
+// Using a blank name (rather than embedding) preserves the non-
+// comparability guarantee while making the field unreachable by
+// selector: `v.DoNotCompare = ...`, `&v.DoNotCompare`, and
+// struct-literal `Foo{DoNotCompare: ...}` all fail to compile, and
+// any method ever added to DoNotCompare will not get promoted onto
+// Foo. Plain embedding (`goconst.DoNotCompare` without a name) is
+// still accepted and semantically equivalent for the non-comparability
+// guarantee, but exposes the name and promotes methods, so the
+// blank-named form is preferred.
+//
+// It is carried (in blank-named form) by every collection view type
+// defined in this package ([Slice] / [Slice2] / [Map] / [Map2]) and
+// by every <Message>_Const wrapper struct produced by
+// protoc-gen-go-const, so that pointer-equality reasoning on wrapper
+// values — which would be meaningless on a view whose sole semantic
+// content is the forwarded-to message — surfaces as a build error
+// rather than as a silently-wrong check. Cf.
+// google.golang.org/protobuf/internal/pragma.DoNotCompare, from which
+// this pattern is borrowed.
 type DoNotCompare [0]func()
 
 // ---------------------------------------------------------------------------
@@ -112,7 +130,7 @@ type DoNotCompare [0]func()
 // / %v produces exactly the same output as printing the underlying []T
 // directly — no extra "Slice[...]" wrapper.
 type Slice[T any] struct {
-	DoNotCompare
+	_ DoNotCompare
 	s []T
 }
 
@@ -174,7 +192,7 @@ func (c Slice[T]) String() string { return fmt.Sprint(c.s) }
 // payload is unreachable without unsafe/reflect, so s[i] = ..., append,
 // copy, and clear all fail to compile.
 type Slice2[T any, E Constable[T]] struct {
-	DoNotCompare
+	_ DoNotCompare
 	s []E
 }
 
@@ -246,7 +264,7 @@ func (c Slice2[T, E]) String() string { return fmt.Sprint(c.s) }
 // Map satisfies [fmt.Stringer]: printing it produces exactly the same
 // output as printing the underlying map[K]V directly.
 type Map[K comparable, V any] struct {
-	DoNotCompare
+	_ DoNotCompare
 	m map[K]V
 }
 
@@ -311,7 +329,7 @@ func (c Map[K, V]) String() string { return fmt.Sprint(c.m) }
 // is unreachable without unsafe/reflect, so m[k] = ... and delete(m, k)
 // fail to compile.
 type Map2[K comparable, V any, E Constable[V]] struct {
-	DoNotCompare
+	_ DoNotCompare
 	m map[K]E
 }
 

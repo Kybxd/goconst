@@ -107,7 +107,7 @@ import (
 
 // Envelope_Const is a read-only wrapper view of *Envelope.
 type Envelope_Const struct {
-	goconst.DoNotCompare // makes `view == view` a compile error
+	_ goconst.DoNotCompare // makes `view == view` a compile error; unreachable by name
 	p *Envelope
 }
 
@@ -157,7 +157,7 @@ is an unexported backing slice / map. They offer:
 type Constable[T any] interface{ AsConst() T }
 
 // Scalar / excluded-package elements — value type T is the stored type.
-type Slice[T any] struct { /* embeds goconst.DoNotCompare; unexported: s []T */ }
+type Slice[T any] struct { /* blank-named goconst.DoNotCompare; unexported: s []T */ }
 
 func (c Slice[T]) Len() int
 func (c Slice[T]) At(i int) T
@@ -167,7 +167,7 @@ func (c Slice[T]) IsNil() bool
 func (c Slice[T]) String() string           // prints the underlying []T
 
 // Message elements — stored type E (e.g. *Address), projected to T (e.g. Address_Const) on access.
-type Slice2[T any, E Constable[T]] struct { /* embeds goconst.DoNotCompare; unexported: s []E */ }
+type Slice2[T any, E Constable[T]] struct { /* blank-named goconst.DoNotCompare; unexported: s []E */ }
 
 func (c Slice2[T, E]) Len() int
 func (c Slice2[T, E]) At(i int) T           // returns c.s[i].AsConst()
@@ -177,7 +177,7 @@ func (c Slice2[T, E]) IsNil() bool
 func (c Slice2[T, E]) String() string       // prints the raw []E (so messages render via their own String())
 
 // Scalar / excluded-package values — value type V is the stored type.
-type Map[K comparable, V any] struct { /* embeds goconst.DoNotCompare; unexported: m map[K]V */ }
+type Map[K comparable, V any] struct { /* blank-named goconst.DoNotCompare; unexported: m map[K]V */ }
 
 func (c Map[K, V]) Len() int
 func (c Map[K, V]) Get(k K) (V, bool)
@@ -189,7 +189,7 @@ func (c Map[K, V]) IsNil() bool
 func (c Map[K, V]) String() string
 
 // Message values — stored type E (e.g. *Address), projected to V (e.g. Address_Const) on access.
-type Map2[K comparable, V any, E Constable[V]] struct { /* embeds goconst.DoNotCompare; unexported: m map[K]E */ }
+type Map2[K comparable, V any, E Constable[V]] struct { /* blank-named goconst.DoNotCompare; unexported: m map[K]E */ }
 
 func (c Map2[K, V, E]) Len() int
 func (c Map2[K, V, E]) Get(k K) (V, bool)   // miss returns nil-backed AsConst() view + false
