@@ -46,9 +46,14 @@ For each message `Foo`, it emits:
   on purpose: a copy you cannot mutate would defeat the point of
   cloning, and you can always re-wrap it via `clone.AsConst()` at zero
   cost.
-* `func (c Foo_Const) String() string` — delegates to `fmt.Sprint(c.p)`
-  so the view prints identically to the backing `*Foo` (and yields
-  `<nil>` for a nil-backed view rather than panicking).
+* `func (c Foo_Const) String() string` — a one-line direct forward to
+  `c.p.String()`. The contract is **byte-for-byte equality with the
+  raw `*Foo`'s own `String()`**; no `fmt.Sprint` detour, no
+  hand-rolled nil branch, nothing that could silently diverge from
+  the upstream message's prototext rendering. This is safe because
+  the plugin only targets protoc-gen-go output, whose generated
+  `(*Foo).String()` is itself nil-safe (returns `"<nil>"` for a nil
+  receiver via `protoimpl.X.MessageStringOf`).
 
 [protoclone]: https://pkg.go.dev/google.golang.org/protobuf/proto#Clone
 
@@ -142,7 +147,9 @@ func (c Envelope_Const) Clone() *Envelope {
 	return proto.Clone(c.p).(*Envelope)
 }
 
-func (c Envelope_Const) String() string { return fmt.Sprint(c.p) }
+func (c Envelope_Const) String() string {
+	return c.p.String()
+}
 ```
 
 (For a full end-to-end output including cross-package imports,

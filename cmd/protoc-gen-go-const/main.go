@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.3"
+const version = "0.4.4"
 
 // protoPackage is the import path of the runtime proto package. It is
 // referenced by the emitted Clone() method on each Message_Const wrapper
@@ -90,10 +90,15 @@ var builtinExcludePackagePatterns = []string{
 //   - Emit `func (c Foo_Const) Clone() *Foo` as the escape hatch out
 //     of the read-only world (delegates to proto.Clone with a nil
 //     guard).
-//   - Emit `func (c Foo_Const) String() string { return fmt.Sprint(c.p) }`
-//     so printing the view via fmt / log reuses the underlying proto
-//     message's prototext-style String (and safely prints "<nil>" on
-//     a nil-backed view).
+//   - Emit `func (c Foo_Const) String() string { return c.p.String() }`,
+//     a one-line direct forward to the wrapped *Message's own
+//     String(). protoc-gen-go's generated String() is a thin shim
+//     over protoimpl.X.MessageStringOf and is itself nil-safe
+//     (returns "<nil>" for a nil receiver), so wrapping it in any
+//     extra logic — an fmt.Sprint reflection hop or a hand-rolled
+//     `if c.p == nil` guard — would only diverge the view's output
+//     from the raw *Message's. The contract we want is exact:
+//     `view.String()` == `(*Foo)(c.p).String()`, byte for byte.
 //
 // Design rationale (vs. the previous interface-based shape):
 //
@@ -464,15 +469,23 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
-	// String forwards to fmt.Sprint on the wrapped pointer. fmt handles
-	// a nil *Message by printing "<nil>", which is the friendliest thing
-	// to do for log lines, and forwards to the message's own
-	// prototext-style String() when the pointer is non-nil. Using
-	// fmt.Sprint instead of c.p.String() keeps the nil path
-	// defensive — some proto runtimes panic when their String() is
-	// invoked on a nil receiver.
+	// String is a one-line direct forward to the wrapped *Message's
+	// own String(). Rationale:
+	//
+	//   - This plugin only runs on protoc-gen-go output, whose
+	//     generated (*Message).String() is a protoimpl.X.MessageStringOf
+	//     shim that is already nil-safe (it prints "<nil>" for a nil
+	//     receiver), so no extra guard is needed for correctness.
+	//   - The contract of the view's String() is defined as exact
+	//     equivalence to the raw *Message's String() — any wrapper
+	//     (fmt.Sprint, a hand-rolled nil branch, anything) would be a
+	//     silent opportunity to diverge. Forwarding verbatim makes
+	//     that equivalence a compile-time property, not a convention.
+	//   - Avoids fmt.pp pool traffic, reflection-based Stringer
+	//     dispatch, []any boxing and a redundant []byte→string copy
+	//     on the hot path.
 	g.P("func (c ", msgName, "_Const) String() string {")
-	g.P("return ", g.QualifiedGoIdent(protogen.GoImportPath("fmt").Ident("Sprint")), "(c.p)")
+	g.P("return c.p.String()")
 	g.P("}")
 	g.P()
 
