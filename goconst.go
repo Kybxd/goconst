@@ -95,8 +95,8 @@ type Constable[T any] interface {
 // values — which would be meaningless on a view whose sole semantic
 // content is the forwarded-to message — surfaces as a build error
 // rather than as a silently-wrong check. Cf.
-// google.golang.org/protobuf/internal/pragma.DoNotCompare, from which
-// this pattern is borrowed.
+// https://pkg.go.dev/google.golang.org/protobuf/internal/pragma#DoNotCompare,
+// from which this pattern is borrowed.
 type DoNotCompare [0]func()
 
 // ---------------------------------------------------------------------------
@@ -124,7 +124,7 @@ type DoNotCompare [0]func()
 // range-over-func shapes ([iter.Seq2] / [iter.Seq]) so callers can
 // either use the native `for i, v := range s.All()` form or feed
 // s.Values() directly into [slices.Collect], [slices.Sorted], or any
-// iter.Seq-aware third-party helper (e.g. github.com/samber/lo/it).
+// iter.Seq-aware third-party helper (e.g. https://pkg.go.dev/github.com/samber/lo/it).
 //
 // Slice satisfies [fmt.Stringer]: printing it with fmt.Print / log.Print
 // / %v produces exactly the same output as printing the underlying []T

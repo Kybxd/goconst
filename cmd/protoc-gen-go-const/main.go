@@ -269,7 +269,7 @@ func (x *Generator) Generate() {
 // g returns the output file, creating it (and writing its header) on the
 // first call. Using sync.Once means a Generator whose only messages are
 // excluded ends up never touching the filesystem — see NewGeneratedFile
-// semantics in google.golang.org/protobuf/compiler/protogen.
+// semantics in https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen.
 func (x *Generator) g() *protogen.GeneratedFile {
 	x.once.Do(func() {
 		filename := x.file.GeneratedFilenamePrefix + ".const.pb.go"
@@ -752,8 +752,9 @@ func (x *Generator) fieldGoType(field *protogen.Field) string {
 
 // scalarFieldGoType returns the Go type string for the field's element kind
 // only — list/map modifiers are NOT applied here; fieldGoType wraps them on
-// top. The mapping mirrors the one used inside google.golang.org/protobuf
-// /compiler/protogen for consistency with the .pb.go sibling file.
+// top. The mapping mirrors the one used inside
+// https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen for
+// consistency with the .pb.go sibling file.
 func (x *Generator) scalarFieldGoType(field *protogen.Field) string {
 	g := x.g()
 	switch field.Desc.Kind() {
