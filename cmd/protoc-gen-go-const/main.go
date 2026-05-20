@@ -13,12 +13,18 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.4"
+const version = "0.4.5"
 
 // protoPackage is the import path of the runtime proto package. It is
-// referenced by the emitted Clone() method on each Message_Const wrapper
-// (via proto.Clone).
+// referenced by the emitted Clone() and Equal() methods on each
+// Message_Const wrapper (via proto.Clone / proto.Equal).
 const protoPackage = protogen.GoImportPath("google.golang.org/protobuf/proto")
+
+// anypbPackage is the import path of the well-known anypb package. It
+// is referenced by the emitted ToAny() method on each Message_Const
+// wrapper (via anypb.New, which packs a proto.Message into a fresh
+// *anypb.Any with the matching type URL).
+const anypbPackage = protogen.GoImportPath("google.golang.org/protobuf/types/known/anypb")
 
 // goconstPackage is the import path of this repo's runtime helper package,
 // which exposes the read-only Slice / Slice2 / Map / Map2 struct-wrapper
@@ -88,8 +94,27 @@ var builtinExcludePackagePatterns = []string{
 //     errors — the former because Foo_Const is a struct, the latter
 //     because of the blank-named goconst.DoNotCompare field).
 //   - Emit `func (c Foo_Const) Clone() *Foo` as the escape hatch out
-//     of the read-only world (delegates to proto.Clone with a nil
-//     guard).
+//     of the read-only world. The body is a thin forward to
+//     proto.Clone, so the wrapper's behaviour matches proto.Clone
+//     byte-for-byte (typed-nil case included).
+//   - Emit `func (c Foo_Const) Equal(other Foo_Const) bool` as a
+//     thin forward to proto.Equal on the wrapped pointers. The
+//     signature only accepts another view (not a raw *Foo) so the
+//     caller never has to materialise a transient view to compare,
+//     and so view-vs-view equality is the canonical, lowest-cost
+//     spelling. proto.Equal is defined to be nil-tolerant on either
+//     side, so no extra guard is needed for nil-backed views.
+//   - Emit `func (c Foo_Const) ToAny() (*anypb.Any, error)` to pack
+//     the wrapped message into a well-known *anypb.Any using
+//     anypb.New. The body is a thin forward, so the wrapper's
+//     behaviour matches anypb.New byte-for-byte. The name follows
+//     the Go "ToX" convention for type conversions that may
+//     allocate (cf. time.Time.UTC(), big.Int.String()) and is
+//     deliberately not "MarshalAny": "Marshal" is reserved in the
+//     protobuf-go API surface for "serialise to wire-format []byte"
+//     (proto.Marshal, protojson.Marshal, prototext.Marshal), so a
+//     method that instead returns a Message would be a misleading
+//     namesake.
 //   - Emit `func (c Foo_Const) String() string { return c.p.String() }`,
 //     a one-line direct forward to the wrapped *Message's own
 //     String(). protoc-gen-go's generated String() is a thin shim
@@ -328,12 +353,19 @@ func (x *Generator) protocVersion() string {
 //     (Foo_Const / goconst.Slice / Slice2 / Map / Map2). Method names
 //     do not collide because Message_Const is a distinct Go type from
 //     *Message.
-//  4. IsNil, Clone, and String on Message_Const. IsNil reports whether
-//     the wrapped pointer is nil; Clone forwards to proto.Clone with a
-//     nil guard (so a nil-backed view yields a nil *Message rather
-//     than a panic); String prints the underlying *Message via fmt,
-//     so the view renders exactly like the raw message would and the
-//     nil case prints "<nil>".
+//  4. IsNil, Clone, Equal, ToAny, and String on Message_Const. IsNil
+//     reports whether the wrapped pointer is nil; Clone forwards to
+//     proto.Clone as a thin wrapper (no nil short-circuit, so the
+//     result is identical to a direct proto.Clone call); Equal
+//     forwards to proto.Equal on the wrapped pointers of two views,
+//     so view-vs-view equality is the canonical spelling and
+//     proto.Equal's own nil-tolerance covers nil-backed inputs;
+//     ToAny packs the wrapped message into a *anypb.Any via
+//     anypb.New as a thin forward (no nil short-circuit, so the
+//     result is identical to a direct anypb.New call); String
+//     prints the underlying *Message via fmt, so the view renders
+//     exactly like the raw message would and the nil case prints
+//     "<nil>".
 //  5. Recursion into nested (non-map-entry) messages, so that a nested
 //     Address or Contact type emits its own _Const API in the same
 //     file.
@@ -445,7 +477,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 		x.genPlainGetter(message, field)
 	}
 
-	// --- (4) IsNil / Clone / String on Message_Const ----------------------
+	// --- (4) IsNil / Clone / Equal / ToAny / String on Message_Const ----
 	//
 	// IsNil is the positive nil predicate. Because Message_Const is a
 	// concrete struct (not an interface), `view == nil` is a compile
@@ -456,16 +488,51 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
-	// Clone is the escape hatch out of the read-only world. proto.Clone
-	// is not documented to be nil-safe and a nil-backed view is a
-	// legitimate state (proto3 missing-message fields resolve to one),
-	// so guard the call explicitly: a nil-backed view clones to nil
-	// rather than panicking.
+	// Clone is the escape hatch out of the read-only world. The body
+	// is a one-line forward to proto.Clone so the wrapper's
+	// behaviour matches the native call exactly.
 	g.P("func (c ", msgName, "_Const) Clone() *", msgName, " {")
-	g.P("if c.p == nil {")
-	g.P("return nil")
-	g.P("}")
 	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("Clone")), "(c.p).(*", msgName, ")")
+	g.P("}")
+	g.P()
+
+	// Equal is a one-line forward to proto.Equal. The signature accepts
+	// another Message_Const (not a raw *Message) for two reasons:
+	//
+	//   - it makes view-vs-view comparison the canonical, lowest-cost
+	//     spelling — callers who hold raw *Message values would
+	//     otherwise have to wrap one into a view via AsConst() just
+	//     to call Equal, which is a zero-cost noop but still extra
+	//     ceremony at the call site;
+	//   - it discourages reaching back to the underlying mutable
+	//     pointer. With a *Message parameter the call site advertises
+	//     that the comparison was against something the caller could
+	//     have mutated; with a Message_Const parameter both sides are
+	//     known-read-only.
+	//
+	// proto.Equal is itself nil-tolerant — it returns true when both
+	// arguments are nil messages and false when exactly one is — so a
+	// nil-backed view on either side does not need an extra guard
+	// here.
+	g.P("func (c ", msgName, "_Const) Equal(other ", msgName, "_Const) bool {")
+	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("Equal")), "(c.p, other.p)")
+	g.P("}")
+	g.P()
+
+	// ToAny packs the wrapped message into a fresh *anypb.Any via
+	// anypb.New. The body is a one-line forward so the wrapper's
+	// behaviour matches the native call exactly.
+	//
+	// The method is named ToAny rather than MarshalAny on purpose:
+	// "Marshal" is reserved in the protobuf-go surface for
+	// "serialise to wire-format []byte" (proto.Marshal,
+	// protojson.Marshal, prototext.Marshal). A method that returns
+	// a *Any (a Message, not a byte slice) under that name would
+	// be a misleading namesake. "ToX" is the established Go
+	// convention for an allocating type conversion (cf.
+	// time.Time.UTC, big.Int.String).
+	g.P("func (c ", msgName, "_Const) ToAny() (*", g.QualifiedGoIdent(anypbPackage.Ident("Any")), ", error) {")
+	g.P("return ", g.QualifiedGoIdent(anypbPackage.Ident("New")), "(c.p)")
 	g.P("}")
 	g.P()
 
