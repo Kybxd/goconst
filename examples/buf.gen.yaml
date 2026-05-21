@@ -10,7 +10,7 @@ plugins:
     out: gen/go
     opt:
       - paths=source_relative
-  - local: [ "go", "run", "../cmd/protoc-gen-go-const/main.go" ]
+  - local: ["go", "run", "../cmd/protoc-gen-go-const/main.go"]
     out: gen/go
     opt:
       - paths=source_relative

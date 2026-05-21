@@ -13,149 +13,63 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.4.5"
+const version = "0.5.0"
 
-// protoPackage is the import path of the runtime proto package. It is
-// referenced by the emitted Clone() and Equal() methods on each
-// Message_Const wrapper (via proto.Clone / proto.Equal).
-const protoPackage = protogen.GoImportPath("google.golang.org/protobuf/proto")
+// protoPackage / anypbPackage / goconstPackage are the import paths
+// referenced by the emitted methods on every Foo_Const wrapper:
+// proto.Clone / proto.Equal back Clone() / Equal(); anypb.New backs
+// ToAny(); goconst.{Slice,Slice2,Map,Map2,NewSlice…,NewMap…,DoNotCompare}
+// back the read-only collection views and the wrapper struct itself.
+const (
+	protoPackage   = protogen.GoImportPath("google.golang.org/protobuf/proto")
+	anypbPackage   = protogen.GoImportPath("google.golang.org/protobuf/types/known/anypb")
+	goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
+)
 
-// anypbPackage is the import path of the well-known anypb package. It
-// is referenced by the emitted ToAny() method on each Message_Const
-// wrapper (via anypb.New, which packs a proto.Message into a fresh
-// *anypb.Any with the matching type URL).
-const anypbPackage = protogen.GoImportPath("google.golang.org/protobuf/types/known/anypb")
-
-// goconstPackage is the import path of this repo's runtime helper package,
-// which exposes the read-only Slice / Slice2 / Map / Map2 struct-wrapper
-// views and the NewSlice / NewSlice2 / NewMap / NewMap2 constructors used
-// by generated *_Const views for repeated / map fields.
-const goconstPackage = protogen.GoImportPath("github.com/Kybxd/goconst")
-
-// builtinExcludePackagePatterns is the list of doublestar glob patterns
-// that are *always* applied on top of the user-supplied --exclude_packages
-// values. They cover packages whose .pb.go output is produced by the
-// upstream protoc-gen-go and therefore has no *_Const / AsConst — without
-// these defaults, generated code would project e.g. *timestamppb.Timestamp
-// through a non-existent Timestamp_Const and fail to compile.
+// builtinExcludePackagePatterns are doublestar globs always applied on
+// top of user-supplied --exclude_packages. They cover packages whose
+// .pb.go is produced upstream and therefore has no _Const / AsConst —
+// generating projected references to them would fail to compile.
 //
-// Currently this is exactly the well-known-types subtree:
-//
-//	google.golang.org/protobuf/types/known/**
-//
-// covering timestamppb / durationpb / anypb / wrapperspb / structpb /
-// fieldmaskpb / emptypb / apipb / sourcecontextpb / typepb (and any
-// future nested subpackages added by the upstream protobuf-go repo).
-// The proto package these all share is google.protobuf — a stable,
-// closed protocol-level identity — and the upstream go_package option
-// is hard-coded into the .proto sources, so this Go-import-path glob
-// is the canonical match for them.
-//
-// Users do not need to repeat this pattern in --exclude_packages; an
-// explicit entry is harmless (matches degenerate to a single hit
-// either way) and stays supported for backwards compatibility with
-// existing buf.gen.yaml files.
+// Currently this is exactly the well-known-types subtree
+// (google.golang.org/protobuf/types/known/**), covering timestamppb /
+// durationpb / anypb / wrapperspb / structpb / fieldmaskpb / emptypb /
+// apipb / sourcecontextpb / typepb (and any future nested
+// subpackages). Users do not need to repeat this in --exclude_packages;
+// an explicit entry stays harmless for backwards compatibility.
 var builtinExcludePackagePatterns = []string{
 	"google.golang.org/protobuf/types/known/**",
 }
 
-// ---------------------------------------------------------------------------
-// Plugin entry point
-// ---------------------------------------------------------------------------
+// main wires the plugin into protogen and runs one [Generator] per
+// input .proto file with Generate == true. Each generator emits a
+// foo.const.pb.go containing, for every message Foo:
 //
-// Generation shape (wrapper-struct design):
+//   - type Foo_Const struct { _ goconst.DoNotCompare; p *Foo }
+//   - type Foo_ConstSlice / Foo_ConstMap[K] aliases for the projecting
+//     collection views;
+//   - func (*Foo) AsConst() Foo_Const — the zero-allocation entry into
+//     the read-only world;
+//   - func (Foo_Const) Get<Field>() — one forwarder per field, either
+//     verbatim (scalar / enum / bytes / excluded-package message) or
+//     materialising a view-native return type ([Slice] / [Slice2] /
+//     [Map] / [Map2] / nested *_Const);
+//   - func (Foo_Const) IsNil / Clone / Equal / ToAny / String — thin
+//     forwards to the corresponding proto / anypb / *Foo operation.
 //
-//   - For every message Foo, emit
-//     `type Foo_Const struct { _ goconst.DoNotCompare; p *Foo }` —
-//     a concrete struct whose sole payload is an unexported *Foo
-//     pointer. The blank-named goconst.DoNotCompare field is a
-//     zero-width [0]func() marker that makes `view == view` a
-//     compile error (pointer-equality on wrapper values is
-//     meaningless: two views
-//     of semantically-equal messages would compare unequal). Every
-//     read on the view forwards through `c.p.<getter>()`, so the
-//     whole view is nil-safe whenever the underlying protoc-gen-go
-//     getter is nil-safe (which is the proto3 default).
-//   - For every field, emit a `Get<Name>` method on Foo_Const. Scalar
-//     / enum / bytes / excluded-package-message fields forward
-//     verbatim to `c.p.Get<Name>()`; singular non-excluded message,
-//     repeated, and map fields instead materialise the appropriate
-//     AsConst projection or goconst.Slice / Slice2 / Map / Map2
-//     read-only collection view. Foo_Const is a distinct Go type from
-//     *Foo so there is no method-set collision with the concrete
-//     getter on either side.
-//   - Emit `func (x *Foo) AsConst() Foo_Const { return Foo_Const{p: x} }`
-//     so *Foo satisfies goconst.Constable[Foo_Const]; this is how
-//     parent messages project repeated / map fields through
-//     goconst.NewSlice2 / NewMap2.
-//   - Emit `func (c Foo_Const) IsNil() bool { return c.p == nil }` so
-//     callers have a positive nil predicate (both the `view == nil`
-//     spelling and the `view == Foo_Const{}` spelling are compile
-//     errors — the former because Foo_Const is a struct, the latter
-//     because of the blank-named goconst.DoNotCompare field).
-//   - Emit `func (c Foo_Const) Clone() *Foo` as the escape hatch out
-//     of the read-only world. The body is a thin forward to
-//     proto.Clone, so the wrapper's behaviour matches proto.Clone
-//     byte-for-byte (typed-nil case included).
-//   - Emit `func (c Foo_Const) Equal(other Foo_Const) bool` as a
-//     thin forward to proto.Equal on the wrapped pointers. The
-//     signature only accepts another view (not a raw *Foo) so the
-//     caller never has to materialise a transient view to compare,
-//     and so view-vs-view equality is the canonical, lowest-cost
-//     spelling. proto.Equal is defined to be nil-tolerant on either
-//     side, so no extra guard is needed for nil-backed views.
-//   - Emit `func (c Foo_Const) ToAny() (*anypb.Any, error)` to pack
-//     the wrapped message into a well-known *anypb.Any using
-//     anypb.New. The body is a thin forward, so the wrapper's
-//     behaviour matches anypb.New byte-for-byte. The name follows
-//     the Go "ToX" convention for type conversions that may
-//     allocate (cf. time.Time.UTC(), big.Int.String()) and is
-//     deliberately not "MarshalAny": "Marshal" is reserved in the
-//     protobuf-go API surface for "serialise to wire-format []byte"
-//     (proto.Marshal, protojson.Marshal, prototext.Marshal), so a
-//     method that instead returns a Message would be a misleading
-//     namesake.
-//   - Emit `func (c Foo_Const) String() string { return c.p.String() }`,
-//     a one-line direct forward to the wrapped *Message's own
-//     String(). protoc-gen-go's generated String() is a thin shim
-//     over protoimpl.X.MessageStringOf and is itself nil-safe
-//     (returns "<nil>" for a nil receiver), so wrapping it in any
-//     extra logic — an fmt.Sprint reflection hop or a hand-rolled
-//     `if c.p == nil` guard — would only diverge the view's output
-//     from the raw *Message's. The contract we want is exact:
-//     `view.String()` == `(*Foo)(c.p).String()`, byte for byte.
-//
-// Design rationale (vs. the previous interface-based shape):
-//
-//   - Foo_Const is no longer a Go interface, so the classic Go
-//     typed-nil footgun — `view == nil` silently evaluating to false
-//     for a nil-backed interface view — is gone. `view == nil` is now
-//     a compile error; callers use IsNil() instead.
-//   - The wrapped *Foo is unexported, so the view can only be read:
-//     there is no exported handle the caller can use to reach back
-//     into the underlying mutable message.
-//   - AsConst() is `return Foo_Const{p: x}` — a single-word struct
-//     literal returned by value. With the pointer fitting in a
-//     register this is a zero-allocation cast, the same cost profile
-//     as the interface-box version it replaces.
-//   - Foo_Const no longer satisfies proto.Message. Callers who need to
-//     pass the view into proto.Marshal or similar must go through
-//     Clone() first to obtain a fresh mutable copy.
+// See genMessageConstAPI for the per-message emission, and the README
+// for the design rationale (typed-nil footgun avoidance, why `==` is a
+// compile error, etc.).
 func main() {
 	var flags pflag.FlagSet
 	excludePackages := flags.StringSlice("exclude_packages", nil,
-		"Repeatable flag listing Go package import path patterns that should "+
-			"NOT receive *_Const wrappers. Each entry is matched against "+
-			"the field's owning Go import path with doublestar (gitignore- / "+
-			"bash globstar-style) semantics, so plain paths work as exact "+
-			"matches, `*` / `?` match within a single path segment, and a "+
-			"recursive `**` segment matches any number of subpackages. "+
-			"Fields whose type comes from a matching package keep their "+
-			"concrete *Type in the enclosing _Const view and do not get "+
-			".AsConst() called on them. The well-known-types subtree "+
+		"Repeatable doublestar glob patterns matched against each "+
+			"field type's owning Go import path. Matched packages keep "+
+			"the concrete *Type in enclosing _Const views (no AsConst() "+
+			"projection, no _Const wrapper). The well-known-types subtree "+
 			"(`google.golang.org/protobuf/types/known/**`) is excluded "+
-			"automatically and does not need to be listed here; see the "+
-			"plugin README for the rationale.")
+			"automatically; see the plugin README for full glob syntax "+
+			"and rationale.")
 
 	protogen.Options{
 		ParamFunc: flags.Set,
@@ -181,39 +95,31 @@ func main() {
 // Generator
 // ---------------------------------------------------------------------------
 
-// Generator carries the per-file state for emitting one .const.pb.go.
-// Exactly one Generator is constructed per input .proto file that has
-// protogen.File.Generate == true (see main above).
+// Generator carries the per-file state for emitting one
+// foo.const.pb.go. Exactly one Generator is constructed per input
+// .proto file with Generate == true (see [main]).
 type Generator struct {
-	// gen is the plugin-level handle, used to create the generated file
-	// lazily in g() and to look up the invoking protoc's version.
-	gen *protogen.Plugin
-	// file is the input .proto being processed.
-	file *protogen.File
+	gen  *protogen.Plugin // plugin handle, used to create the output file lazily
+	file *protogen.File   // input .proto being processed
 
-	// once + genFile lazily create the output file on the first call to g()
-	// so that proto files containing only excluded messages (and therefore
-	// producing no _Const output) do not leave behind an empty stub.
+	// once + genFile lazily create the output file on the first call
+	// to g(), so a file whose every message is excluded leaves no
+	// empty stub behind.
 	once    sync.Once
 	genFile *protogen.GeneratedFile
 
-	// excludePackagePatterns is the list of Go import path doublestar
-	// glob patterns whose messages should be left as concrete *Type
-	// references. Populated from the --exclude_packages flag; matched
-	// with doublestar.Match in matchExcludePattern (used by both
-	// shouldExcludeFile and shouldExcludeMessage). A plain (wildcard-
-	// free) pattern degenerates to an exact-match check, so the legacy
-	// "list of import paths" usage keeps working unchanged.
+	// excludePackagePatterns is the list of doublestar globs matched
+	// against a message's owning Go import path by matchExcludePattern.
+	// A wildcard-free pattern degenerates to an exact-match check, so
+	// the legacy "list of import paths" usage keeps working.
 	excludePackagePatterns []string
 }
 
-// NewGenerator returns a Generator bound to a single input file. The
-// excludePackages slice is trimmed and concatenated with the always-on
-// builtinExcludePackagePatterns (currently just the well-known-types
-// subtree) into a single doublestar pattern list. Order does not matter
-// — matchExcludePattern short-circuits on the first hit — so the
-// builtins are appended verbatim and a duplicate user entry is
-// harmless.
+// NewGenerator returns a Generator bound to one input file, with the
+// trimmed user-supplied excludePackages concatenated with
+// builtinExcludePackagePatterns into a single doublestar pattern list
+// (order does not matter — matchExcludePattern short-circuits on the
+// first hit).
 func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []string) *Generator {
 	patterns := make([]string, 0, len(excludePackages)+len(builtinExcludePackagePatterns))
 	for _, pkg := range excludePackages {
@@ -231,44 +137,32 @@ func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []s
 	}
 }
 
-// shouldExcludeFile reports whether the input .proto's owning Go package
-// is matched by any --exclude_packages pattern. Equivalent to calling
-// shouldExcludeMessage on every top-level message in the file (they all
-// share the same Go import path), so callers that want to short-circuit
-// before iterating message-by-message can use this instead.
+// shouldExcludeFile reports whether the input .proto's owning Go
+// package matches any --exclude_packages pattern. Equivalent to
+// shouldExcludeMessage on every top-level message (they all share
+// the same Go import path), and lets [Generate] short-circuit before
+// iterating message-by-message.
 func (x *Generator) shouldExcludeFile(file *protogen.File) bool {
 	return x.matchExcludePattern(string(file.GoImportPath))
 }
 
-// shouldExcludeMessage reports whether the plugin must NOT generate a _Const
-// wrapper for the given message (and, when referenced from an enclosing
-// message, must keep the concrete *Type signature without an AsConst()
-// projection). Look-up is by the message's owning Go import path, matched
-// against every pattern from --exclude_packages with doublestar semantics:
-// `*` and `?` match within a single `/`-separated segment, and a recursive
-// `**` segment matches any number of subpackages (e.g.
-// `google.golang.org/protobuf/types/known/**` covers every WKT package,
-// including nested ones).
-//
-// This is the per-reference variant: it must keep working for messages
-// from other packages reached via field types (see fieldNeedsConstPrefix,
-// fieldElemConstType, messageConstGoType), where the target package is
-// not necessarily x.file's own package. For the top-level "is the whole
-// input file excluded?" question, prefer [shouldExcludeFile].
+// shouldExcludeMessage reports whether the plugin must skip the _Const
+// wrapper for the given message and keep references to it as the
+// concrete *Type. This is the per-reference variant: it keeps working
+// for messages reached via field types from other packages (see
+// fieldNeedsViewProjection, fieldElemConstType, messageConstGoType).
+// Use [shouldExcludeFile] for the top-level "is the whole input file
+// excluded?" question.
 func (x *Generator) shouldExcludeMessage(message *protogen.Message) bool {
 	return x.matchExcludePattern(string(message.GoIdent.GoImportPath))
 }
 
 // matchExcludePattern reports whether pkgPath matches any of the
-// --exclude_packages doublestar glob patterns. Shared by
-// shouldExcludeFile and shouldExcludeMessage.
+// --exclude_packages doublestar globs. A malformed pattern is treated
+// as a non-match (matching the previous exact-match implementation's
+// behaviour on a typo'd entry).
 func (x *Generator) matchExcludePattern(pkgPath string) bool {
 	for _, pattern := range x.excludePackagePatterns {
-		// doublestar.Match only fails on a malformed pattern. We treat
-		// that as "does not match" — the plugin already validated
-		// nothing at flag parse time, so silently skipping a bad
-		// pattern matches what the previous exact-match implementation
-		// did with a typo'd entry.
 		if ok, _ := doublestar.Match(pattern, pkgPath); ok {
 			return true
 		}
@@ -276,12 +170,10 @@ func (x *Generator) matchExcludePattern(pkgPath string) bool {
 	return false
 }
 
-// Generate walks every top-level message in the input file and emits its
-// _Const API. The whole file is short-circuited up front via
-// shouldExcludeFile (every top-level message in a .proto shares the same
-// Go import path, so per-message exclusion would be redundant here).
-// Nested messages are recursed into by genMessageConstAPI, so they are
-// NOT iterated here.
+// Generate walks every top-level message in the input file and emits
+// its _Const API. Nested messages are recursed into by
+// genMessageConstAPI rather than iterated here. The whole file is
+// short-circuited up front via shouldExcludeFile.
 func (x *Generator) Generate() {
 	if x.shouldExcludeFile(x.file) {
 		return
@@ -291,10 +183,9 @@ func (x *Generator) Generate() {
 	}
 }
 
-// g returns the output file, creating it (and writing its header) on the
-// first call. Using sync.Once means a Generator whose only messages are
-// excluded ends up never touching the filesystem — see NewGeneratedFile
-// semantics in https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen.
+// g returns the output file, creating it (and writing its header) on
+// first call. sync.Once means a Generator whose only messages are
+// excluded never touches the filesystem.
 func (x *Generator) g() *protogen.GeneratedFile {
 	x.once.Do(func() {
 		filename := x.file.GeneratedFilenamePrefix + ".const.pb.go"
@@ -333,77 +224,34 @@ func (x *Generator) protocVersion() string {
 // Core emission
 // ---------------------------------------------------------------------------
 
-// genMessageConstAPI emits, for one message, the full set of declarations
-// that make up the wrapper-struct _Const shape:
+// genMessageConstAPI emits the full _Const API for one message:
 //
-//  1. The Message_Const struct type. It has a single unexported payload
-//     field `p *Message` and carries goconst.DoNotCompare as a
-//     blank-named field (a zero-width [0]func() marker that makes
-//     `view == view` a compile error); no embedding, so no method on
-//     *Message leaks onto the view
-//     beyond what this generator explicitly forwards.
-//  2. AsConst on *Message, returning Message_Const{p: x}. This is how
-//     *Message satisfies goconst.Constable[Message_Const] and how
-//     callers enter the read-only world at zero cost.
-//  3. Forwarding methods on Message_Const for every field, all named
-//     `Get<Name>` to mirror the concrete *Message getter spelling.
-//     Scalar / enum / bytes / excluded-package-message fields forward
-//     verbatim to `c.p.Get<Name>()`; non-excluded singular message,
-//     repeated and map fields instead return the view-native type
-//     (Foo_Const / goconst.Slice / Slice2 / Map / Map2). Method names
-//     do not collide because Message_Const is a distinct Go type from
-//     *Message.
-//  4. IsNil, Clone, Equal, ToAny, and String on Message_Const. IsNil
-//     reports whether the wrapped pointer is nil; Clone forwards to
-//     proto.Clone as a thin wrapper (no nil short-circuit, so the
-//     result is identical to a direct proto.Clone call); Equal
-//     forwards to proto.Equal on the wrapped pointers of two views,
-//     so view-vs-view equality is the canonical spelling and
-//     proto.Equal's own nil-tolerance covers nil-backed inputs;
-//     ToAny packs the wrapped message into a *anypb.Any via
-//     anypb.New as a thin forward (no nil short-circuit, so the
-//     result is identical to a direct anypb.New call); String
-//     prints the underlying *Message via fmt, so the view renders
-//     exactly like the raw message would and the nil case prints
-//     "<nil>".
-//  5. Recursion into nested (non-map-entry) messages, so that a nested
-//     Address or Contact type emits its own _Const API in the same
-//     file.
+//  1. type Foo_Const struct { _ goconst.DoNotCompare; p *Foo }
+//  2. type Foo_ConstSlice / Foo_ConstMap[K] aliases for the projecting
+//     [Slice2] / [Map2] views (also acting as compile-time witnesses
+//     that *Foo satisfies goconst.Constable[Foo_Const], so a separate
+//     `var _ Constable…` line is unnecessary).
+//  3. AsConst on *Foo returning Foo_Const{p: x} — the zero-allocation
+//     entry into the read-only world.
+//  4. Get<Field> forwarders, dispatched to genPlainGetter (verbatim
+//     forward) or genConstGetter (view-native return type) by
+//     fieldNeedsViewProjection.
+//  5. IsNil / Clone / Equal / ToAny / String — thin forwards to the
+//     corresponding proto / anypb / *Foo operation.
+//  6. Recursion into nested non-map-entry messages.
 //
-// No separate `var _ goconst.Constable[Message_Const] = (*Message)(nil)`
-// witness is emitted: the two collection aliases in step 1b (Slice2 /
-// Map2 both constrain their storage parameter to Constable[T_Const]) are
-// already elaborated in the same file and fail the build in exactly the
-// same way if AsConst is dropped or renamed, so an explicit witness
-// would be redundant.
+// See main's package-level comment for the design rationale of each
+// emitted method.
 func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g := x.g()
 	msgName := message.GoIdent.GoName
 
-	// --- (1) The _Const struct --------------------------------------------
-	//
-	// The wrapped pointer is unexported on purpose: cross-package callers
-	// cannot reach it, so the only way to read the underlying message is
-	// through the forwarding methods emitted below. Consequently the
-	// read-only contract is enforced by the Go type system itself, not
-	// by convention.
-	//
-	// goconst.DoNotCompare is a zero-width [0]func() marker carried as a
-	// blank-named field (`_ goconst.DoNotCompare`) so that `a == b` on
-	// two Message_Const values is a compile error: two views that wrap
-	// different *Message pointers would compare unequal even when the
-	// wrapped messages are semantically equal, so pointer-equality on
-	// views is never the question callers want to ask — and letting
-	// the compiler reject it is cleaner than documenting around it.
-	// Callers who really want identity on the underlying pointer can
-	// compare *Message values directly.
-	//
-	// The field is deliberately *not* embedded: with a blank name it
-	// still contributes layout (and thus non-comparability) but is
-	// unreachable by selector — `v.DoNotCompare = ...`, `&v.DoNotCompare`,
-	// and struct-literal `Message_Const{DoNotCompare: ...}` all fail
-	// to compile, and any future method added to DoNotCompare does
-	// not get promoted onto Message_Const.
+	// (1) The _Const struct. The wrapped *Foo is unexported so
+	// cross-package callers can only read it through the forwarders
+	// emitted below. The blank-named goconst.DoNotCompare field is a
+	// zero-width [0]func() marker that turns `view == view` into a
+	// compile error (and the blank name keeps it unreachable by
+	// selector and prevents method promotion).
 	g.P("// ", msgName, "_Const is a read-only wrapper view of *", msgName, ".")
 	g.P("type ", msgName, "_Const struct {")
 	g.P("_ ", g.QualifiedGoIdent(goconstPackage.Ident("DoNotCompare")))
@@ -411,34 +259,16 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P("}")
 	g.P()
 
-	// --- (1b) Per-message collection aliases ------------------------------
+	// (1b) Per-message Go 1.24 collection aliases that bake the
+	// storage type *Foo into the projecting collection views, so
+	// getter signatures stay short:
 	//
-	// Emit two Go 1.24 type aliases that bake the storage type E (=*Message)
-	// into the generic collection views, so callers see short, intuitive
-	// return types on getters rather than the raw three-parameter
-	// goconst.Slice2 / Map2 spelling:
+	//   <Msg>_ConstSlice             = goconst.Slice2[<Msg>_Const, *<Msg>]
+	//   <Msg>_ConstMap[K comparable] = goconst.Map2[K, <Msg>_Const, *<Msg>]
 	//
-	//   type <Msg>_ConstSlice              = goconst.Slice2[<Msg>_Const, *<Msg>]
-	//   type <Msg>_ConstMap[K comparable]  = goconst.Map2[K, <Msg>_Const, *<Msg>]
-	//
-	// These are *pure* aliases — at runtime they are the same types as the
-	// RHS, with identical method sets, size, and ABI. The aliases only
-	// exist to shorten generated getter signatures like
-	// `GetAddressBook() <Msg>_ConstMap[int64]` instead of
-	// `GetAddressBook() goconst.Map2[int64, <Msg>_Const, *<Msg>]`.
-	//
-	// They are always emitted (not guarded by "is this message actually
-	// used as a repeated / map element?") so the surface of every _Const
-	// view is uniform: callers can form
-	// `var s <Msg>_ConstSlice = other.GetXs()` regardless of which parent
-	// field they are pulling the collection out of.
-	//
-	// These two aliases also act as the compile-time witness that
-	// *<Msg> satisfies goconst.Constable[<Msg>_Const]: Slice2 / Map2
-	// both constrain their storage parameter to Constable[T_Const], so
-	// elaborating the alias lines forces the same check that a
-	// `var _ goconst.Constable[<Msg>_Const] = (*<Msg>)(nil)` witness
-	// would — making a separate witness redundant.
+	// Always emitted (regardless of whether this message is actually
+	// used as a repeated / map element) so the surface of every
+	// _Const view is uniform.
 	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
 		"[", msgName, "_Const, *", msgName, "]")
 	g.P("type ", msgName, "_ConstMap[K comparable] = ",
@@ -446,29 +276,21 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 		"[K, ", msgName, "_Const, *", msgName, "]")
 	g.P()
 
-	// --- (2) AsConst: zero-allocation "cast" ------------------------------
-	//
-	// Returns a Message_Const by value. Because the struct holds a
-	// single pointer it fits in a register, so the return path is a
-	// zero-allocation cast: no heap traffic, no interface box. This is
-	// also what makes *Message satisfy goconst.Constable[Message_Const],
-	// which in turn is what the NewSlice2 / NewMap2 constructors rely on
-	// to project repeated / map fields element-by-element.
+	// (2) AsConst — zero-allocation cast (single-pointer struct
+	// returned in a register), and the witness that *Foo satisfies
+	// goconst.Constable[Foo_Const].
 	g.P("// AsConst returns x wrapped as its read-only ", msgName, "_Const view.")
 	g.P("func (x *", msgName, ") AsConst() ", msgName, "_Const {")
 	g.P("return ", msgName, "_Const{p: x}")
 	g.P("}")
 	g.P()
 
-	// --- (3) Forwarding methods for every field ---------------------------
-	//
-	// All forwarding methods are named Get<Name> to mirror the concrete
-	// *Message getter spelling. The split between genPlainGetter and
-	// genConstGetter is therefore purely about which body shape gets
-	// emitted (verbatim forward vs. AsConst projection / NewSlice /
-	// NewMap constructor), not about the method name. There is no
-	// method-set collision with the concrete *Message because
-	// Message_Const is a distinct Go type.
+	// (3) Get<Field> forwarders. genPlainGetter forwards verbatim
+	// (scalar / enum / bytes / excluded-package message); genConstGetter
+	// materialises a view-native return type (AsConst projection, or a
+	// goconst.Slice / Slice2 / Map / Map2 collection wrapper). No
+	// method-set collision with the concrete *Foo because Foo_Const
+	// is a distinct Go type.
 	for _, field := range message.Fields {
 		if x.fieldNeedsViewProjection(field) {
 			x.genConstGetter(message, field)
@@ -477,91 +299,56 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 		x.genPlainGetter(message, field)
 	}
 
-	// --- (4) IsNil / Clone / Equal / ToAny / String on Message_Const ----
-	//
-	// IsNil is the positive nil predicate. Because Message_Const is a
-	// concrete struct (not an interface), `view == nil` is a compile
-	// error: the type system rules out the classic Go typed-nil footgun
-	// at the grammar level, and callers are steered to IsNil() instead.
+	// (4) IsNil / Clone / Equal / ToAny / String — thin forwards.
+	// IsNil is the positive nil predicate (the `view == nil` and
+	// `view == Foo_Const{}` spellings are both compile errors). Clone
+	// / Equal / ToAny / String forward verbatim to proto.Clone /
+	// proto.Equal / anypb.New / (*Foo).String() so the wrapper
+	// behaviour matches each native call byte-for-byte (including
+	// nil-tolerance on Equal and "<nil>" on String).
 	g.P("func (c ", msgName, "_Const) IsNil() bool {")
 	g.P("return c.p == nil")
 	g.P("}")
 	g.P()
 
-	// Clone is the escape hatch out of the read-only world. The body
-	// is a one-line forward to proto.Clone so the wrapper's
-	// behaviour matches the native call exactly.
 	g.P("func (c ", msgName, "_Const) Clone() *", msgName, " {")
 	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("Clone")), "(c.p).(*", msgName, ")")
 	g.P("}")
 	g.P()
 
-	// Equal is a one-line forward to proto.Equal. The signature accepts
-	// another Message_Const (not a raw *Message) for two reasons:
-	//
-	//   - it makes view-vs-view comparison the canonical, lowest-cost
-	//     spelling — callers who hold raw *Message values would
-	//     otherwise have to wrap one into a view via AsConst() just
-	//     to call Equal, which is a zero-cost noop but still extra
-	//     ceremony at the call site;
-	//   - it discourages reaching back to the underlying mutable
-	//     pointer. With a *Message parameter the call site advertises
-	//     that the comparison was against something the caller could
-	//     have mutated; with a Message_Const parameter both sides are
-	//     known-read-only.
-	//
-	// proto.Equal is itself nil-tolerant — it returns true when both
-	// arguments are nil messages and false when exactly one is — so a
-	// nil-backed view on either side does not need an extra guard
-	// here.
+	// Equal takes another Foo_Const (not a raw *Foo): it makes
+	// view-vs-view comparison the canonical, lowest-cost spelling and
+	// keeps both sides known-read-only. proto.Equal is itself
+	// nil-tolerant, so no extra guard is needed.
 	g.P("func (c ", msgName, "_Const) Equal(other ", msgName, "_Const) bool {")
 	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("Equal")), "(c.p, other.p)")
 	g.P("}")
 	g.P()
 
-	// ToAny packs the wrapped message into a fresh *anypb.Any via
-	// anypb.New. The body is a one-line forward so the wrapper's
-	// behaviour matches the native call exactly.
-	//
-	// The method is named ToAny rather than MarshalAny on purpose:
-	// "Marshal" is reserved in the protobuf-go surface for
-	// "serialise to wire-format []byte" (proto.Marshal,
-	// protojson.Marshal, prototext.Marshal). A method that returns
-	// a *Any (a Message, not a byte slice) under that name would
-	// be a misleading namesake. "ToX" is the established Go
-	// convention for an allocating type conversion (cf.
-	// time.Time.UTC, big.Int.String).
+	// ToAny is named after the Go "ToX" convention for allocating
+	// type conversions (cf. time.Time.UTC, big.Int.String). Not
+	// "MarshalAny": "Marshal" is reserved in protobuf-go for
+	// "serialise to wire-format []byte", so a method that returns
+	// a *Any (a Message, not a byte slice) under that name would be
+	// a misleading namesake.
 	g.P("func (c ", msgName, "_Const) ToAny() (*", g.QualifiedGoIdent(anypbPackage.Ident("Any")), ", error) {")
 	g.P("return ", g.QualifiedGoIdent(anypbPackage.Ident("New")), "(c.p)")
 	g.P("}")
 	g.P()
 
-	// String is a one-line direct forward to the wrapped *Message's
-	// own String(). Rationale:
-	//
-	//   - This plugin only runs on protoc-gen-go output, whose
-	//     generated (*Message).String() is a protoimpl.X.MessageStringOf
-	//     shim that is already nil-safe (it prints "<nil>" for a nil
-	//     receiver), so no extra guard is needed for correctness.
-	//   - The contract of the view's String() is defined as exact
-	//     equivalence to the raw *Message's String() — any wrapper
-	//     (fmt.Sprint, a hand-rolled nil branch, anything) would be a
-	//     silent opportunity to diverge. Forwarding verbatim makes
-	//     that equivalence a compile-time property, not a convention.
-	//   - Avoids fmt.pp pool traffic, reflection-based Stringer
-	//     dispatch, []any boxing and a redundant []byte→string copy
-	//     on the hot path.
+	// String forwards verbatim to (*Foo).String(), which is itself
+	// nil-safe (returns "<nil>" via protoimpl.X.MessageStringOf). The
+	// contract is exact equivalence to the raw message — any wrapper
+	// (fmt.Sprint, a hand-rolled nil branch, …) would be a silent
+	// opportunity to diverge.
 	g.P("func (c ", msgName, "_Const) String() string {")
 	g.P("return c.p.String()")
 	g.P("}")
 	g.P()
 
-	// --- (5) Recurse into nested messages ---------------------------------
-	//
-	// Skip synthetic map-entry messages (e.g. Foo.AttributesEntry): they
-	// are plumbing for the map<K,V> syntax in proto3 and are never meant
-	// to be referenced directly by user code, so generating a _Const view
-	// for them would be both useless and noisy.
+	// (5) Recurse into nested messages, skipping synthetic
+	// map-entry messages (proto3 plumbing for map<K, V>; never
+	// referenced by user code).
 	for _, nested := range message.Messages {
 		if nested.Desc.IsMapEntry() {
 			continue
@@ -571,45 +358,37 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 }
 
 // fieldNeedsViewProjection reports whether the field's view signature
-// differs from its signature on the concrete *Message, and therefore
-// whether the forwarding method on Message_Const must materialise a
-// view-native return type (AsConst projection or a goconst.Slice /
-// Slice2 / Map / Map2 collection wrapper) rather than forward verbatim.
+// differs from its concrete *Foo getter (and therefore needs a
+// view-native return type rather than a verbatim forwarder). Three
+// kinds qualify:
 //
-// Three kinds of fields qualify:
+//   - repeated fields:     []T → goconst.Slice[T] (or <T>_ConstSlice);
+//   - map fields:          map[K]V → goconst.Map[K, V] (or <V>_ConstMap[K]);
+//   - singular non-excluded message fields: *T → T_Const.
 //
-//   - repeated fields: []T → goconst.Slice[T] (or <T>_ConstSlice, the
-//     Go 1.24 alias for Slice2[T_Const, *T]);
-//   - map fields:      map[K]V → goconst.Map[K, V] (or <V>_ConstMap[K],
-//     the Go 1.24 alias for Map2[K, V_Const, *V]);
-//   - singular messages from a non-excluded package: *T → T_Const.
-//
-// Everything else (scalars, enums, bytes, and messages from excluded
-// packages) has a view-native signature that is identical to the
-// concrete getter, so a verbatim forwarder is emitted instead. The
-// method name is Get<Name> in both cases.
+// Everything else (scalars, enums, bytes, excluded-package messages)
+// has a view-native signature identical to the concrete getter and
+// gets a verbatim forwarder.
 func (x *Generator) fieldNeedsViewProjection(field *protogen.Field) bool {
 	if field.Desc.IsList() || field.Desc.IsMap() {
 		return true
 	}
 	if field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind {
-		// Excluded-package messages have no _Const view, so the view
-		// signature is identical to the concrete getter.
+		// Excluded-package messages have no _Const view, so the
+		// view signature is identical to the concrete getter.
 		return !x.shouldExcludeMessage(field.Message)
 	}
 	return false
 }
 
-// genPlainGetter emits a `func (c Message_Const) Get<Name>() <T>` method
-// that forwards verbatim to the concrete `*Message.Get<Name>()`. Used for
-// every field whose view signature matches the concrete getter exactly
-// (scalars, enums, bytes, excluded-package singular messages).
+// genPlainGetter emits `func (c Foo_Const) Get<Name>() <T>` that
+// forwards verbatim to *Foo.Get<Name>(). Used for fields whose view
+// signature matches the concrete getter exactly (scalars, enums,
+// bytes, excluded-package singular messages).
 //
-// The forwarding body relies on protoc-gen-go's nil-receiver-safe
-// getters: `(*Message)(nil).Get<Name>()` is defined to return the scalar
-// zero value / nil pointer, so a nil-backed Message_Const view still
-// reads as the zero value rather than panicking. The guarantee is
-// therefore inherited, not re-implemented here.
+// Nil-safety is inherited: protoc-gen-go's getters are themselves
+// nil-receiver-safe, so a nil-backed Foo_Const view still reads as
+// the zero value rather than panicking.
 func (x *Generator) genPlainGetter(message *protogen.Message, field *protogen.Field) {
 	g := x.g()
 	msgName := message.GoIdent.GoName
@@ -620,17 +399,15 @@ func (x *Generator) genPlainGetter(message *protogen.Message, field *protogen.Fi
 	g.P()
 }
 
-// genConstGetter emits one `func (c Message_Const) Get<Name>() <ret-type>`
-// method on the wrapper struct, matching the view-native signature. List
-// and map fields delegate to the runtime constructors goconst.NewSlice /
-// NewSlice2 / NewMap / NewMap2; singular non-excluded messages recurse
-// through their own AsConst().
+// genConstGetter emits one Get<Name> forwarder with a view-native
+// return type. List / map fields delegate to goconst.NewSlice /
+// NewSlice2 / NewMap / NewMap2; singular non-excluded messages
+// recurse through their own AsConst().
 //
-// The caller must only invoke this for fields where
-// fieldNeedsViewProjection returned true — other fields get a verbatim
-// forwarder from genPlainGetter. A direct call here for an
-// excluded-package singular message is guarded defensively so that the
-// generator never emits a reference to a non-existent _Const type.
+// Caller must only invoke this for fields where
+// fieldNeedsViewProjection returned true. The singular-message branch
+// guards excluded packages defensively so an accidental direct call
+// never emits a reference to a non-existent _Const type.
 func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Field) {
 	g := x.g()
 	msgName := message.GoIdent.GoName
@@ -638,20 +415,18 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 
 	switch {
 	case field.Desc.IsList():
-		// Message elements that are NOT in an excluded package expose a
-		// Constable[T_Const] view, so we pick NewSlice2 which projects each
-		// element through AsConst(). Everything else (scalars, enums, and
-		// message elements from excluded packages) passes through as-is
-		// via NewSlice.
+		// Non-excluded message elements expose a Constable[T_Const]
+		// view → NewSlice2 (projects each element through AsConst).
+		// Everything else (scalars / enums / excluded-package
+		// messages) passes through as-is via NewSlice.
 		wrapAsConst := x.isMessageElem(field) && !x.shouldExcludeMessage(field.Message)
 		retType := x.sliceContainerType(field)
 
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			// Type arguments are omitted on purpose: Go 1.23+ constraint
-			// type inference recovers both E (the slice element type) and
-			// T (from the Constable[T] constraint on E) from the argument,
-			// so spelling them out triggers the "unnecessary type
+			// Type arguments omitted on purpose: Go 1.23+ constraint
+			// type inference recovers them from the argument, and
+			// spelling them out triggers the "unnecessary type
 			// arguments" diagnostic under gopls / revive.
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewSlice2")),
 				"(c.p.Get", field.GoName, "())")
@@ -663,17 +438,16 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 		g.P()
 
 	case field.Desc.IsMap():
-		// Map fields in protogen are modeled as synthetic entry messages
-		// with two fields ("key" at Fields[0], "value" at Fields[1]); the
-		// entry's IsMapEntry() is true and it is excluded from recursion
-		// in genMessageConstAPI.
+		// protogen models map fields as a synthetic entry message
+		// with Fields[0] = key and Fields[1] = value; the entry's
+		// IsMapEntry() is true and is excluded from recursion in
+		// genMessageConstAPI.
 		valField := field.Message.Fields[1]
 		wrapAsConst := x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message)
 		retType := x.mapContainerType(field)
 
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			// Same type-inference rationale as NewSlice2 above.
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")),
 				"(c.p.Get", field.GoName, "())")
 		} else {
@@ -684,32 +458,26 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 		g.P()
 
 	case field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind:
-		// Defensive: excluded-package messages should already have been
-		// filtered out by fieldNeedsViewProjection. Keep the guard so an
-		// accidental direct call here does not emit a reference to a
-		// non-existent T_Const type.
+		// Defensive: excluded-package messages should already have
+		// been filtered out by fieldNeedsViewProjection.
 		if x.shouldExcludeMessage(field.Message) {
 			return
 		}
 		retType := x.messageConstGoType(field.Message)
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
-		// c.p.Get<Name>() is proto3's nil-safe singular getter returning
-		// a typed *Address (possibly a typed nil when the field is
-		// unset). Routing that result through AsConst() gives an
-		// Address_Const whose wrapped pointer may also be nil — that is
-		// the defined miss sentinel, and its own scalar getters forward
-		// through the nil-safe proto getters so they still yield zero
-		// values. Under the struct-wrapper scheme this is an explicit
-		// AsConst() hop, not the implicit interface conversion the
-		// previous design relied on.
+		// c.p.Get<Name>() is proto3's nil-safe singular getter; a
+		// nil receiver gives a typed-nil *Address whose AsConst()
+		// in turn produces an Address_Const{p: nil}. That nil-backed
+		// view's own scalar getters stay nil-safe by forwarding
+		// through the same protoc-gen-go nil-safe getters.
 		g.P("return c.p.Get", field.GoName, "().AsConst()")
 		g.P("}")
 		g.P()
 	}
 }
 
-// isMessageElem reports whether a repeated/map field's element type is a
-// protobuf message (as opposed to a scalar, enum, or bytes). Used to decide
+// isMessageElem reports whether a repeated/map field's element type
+// is a protobuf message (vs. scalar / enum / bytes). Used to decide
 // between NewSlice / NewSlice2 (and NewMap / NewMap2).
 func (x *Generator) isMessageElem(field *protogen.Field) bool {
 	return field.Desc.Kind() == protoreflect.MessageKind || field.Desc.Kind() == protoreflect.GroupKind
@@ -719,14 +487,10 @@ func (x *Generator) isMessageElem(field *protogen.Field) bool {
 // Type-string helpers
 // ---------------------------------------------------------------------------
 
-// sliceContainerType returns the goconst.Slice[...] / <Msg>_ConstSlice
-// type string for a repeated field. For message elements from a
-// non-excluded package the per-message Go 1.24 alias <Msg>_ConstSlice
-// (= goconst.Slice2[<Msg>_Const, *<Msg>]) is used so the storage type
-// stays hidden from getter signatures. For scalar / enum / bytes
-// elements and for excluded-package message elements there is no
-// AsConst projection needed, so the single-parameter Slice variant
-// is used and E is never exposed in the signature.
+// sliceContainerType returns the goconst.Slice[…] / <Msg>_ConstSlice
+// type string for a repeated field. Non-excluded message elements use
+// the per-message Go 1.24 alias <Msg>_ConstSlice; everything else uses
+// the single-parameter goconst.Slice[…].
 func (x *Generator) sliceContainerType(field *protogen.Field) string {
 	g := x.g()
 	if x.isMessageElem(field) && !x.shouldExcludeMessage(field.Message) {
@@ -739,14 +503,11 @@ func (x *Generator) sliceContainerType(field *protogen.Field) string {
 		g.QualifiedGoIdent(goconstPackage.Ident("Slice")), x.fieldElemConstType(field))
 }
 
-// mapContainerType returns the goconst.Map[...] / <ValueMsg>_ConstMap[K]
-// type string for a map field. When the value is a message from a
-// non-excluded package the per-message Go 1.24 generic alias
-// <ValueMsg>_ConstMap[K] (= goconst.Map2[K, <ValueMsg>_Const, *<ValueMsg>])
-// is used so the storage type stays hidden from getter signatures;
-// only the key type has to be written explicitly. Keys are always
-// scalar / enum / bytes in proto3 so no projection logic is needed on
-// the key side.
+// mapContainerType returns the goconst.Map[…] / <ValueMsg>_ConstMap[K]
+// type string for a map field. Non-excluded message values use the
+// per-message Go 1.24 generic alias <ValueMsg>_ConstMap[K]; everything
+// else uses goconst.Map[K, V]. Keys are always scalar / enum / bytes
+// in proto3, so no projection logic is needed on the key side.
 func (x *Generator) mapContainerType(field *protogen.Field) string {
 	g := x.g()
 	keyField := field.Message.Fields[0]
@@ -765,10 +526,9 @@ func (x *Generator) mapContainerType(field *protogen.Field) string {
 }
 
 // fieldElemConstType returns the Go type string for one element of a
-// repeated/map field (the element type for lists, the value type for maps).
-// Message elements are projected to their _Const view; scalar / enum /
-// bytes elements are returned as-is. Excluded-package messages keep the
-// concrete *Type pointer.
+// repeated / map field (the value type for maps). Non-excluded message
+// elements project to their _Const view; excluded ones keep *Type;
+// scalar / enum / bytes elements are returned as-is.
 func (x *Generator) fieldElemConstType(field *protogen.Field) string {
 	switch field.Desc.Kind() {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
@@ -781,10 +541,9 @@ func (x *Generator) fieldElemConstType(field *protogen.Field) string {
 	}
 }
 
-// messageConstGoType returns the _Const wrapper Go type string for the
-// given message, routed through QualifiedGoIdent so that cross-package
-// references trigger the correct import to be added to the generated file.
-// Excluded packages fall back to the concrete *Type pointer.
+// messageConstGoType returns the _Const Go type string for the given
+// message, routed through QualifiedGoIdent so cross-package references
+// register the correct import. Excluded packages fall back to *Type.
 func (x *Generator) messageConstGoType(msg *protogen.Message) string {
 	g := x.g()
 	if x.shouldExcludeMessage(msg) {
@@ -796,10 +555,10 @@ func (x *Generator) messageConstGoType(msg *protogen.Message) string {
 	})
 }
 
-// fieldGoType returns the Go type string used for the given field on the
-// concrete *Message, following the same conventions as protoc-gen-go. For
-// list/map fields the slice / map wrapper is layered on top of the element
-// type returned by scalarFieldGoType.
+// fieldGoType returns the Go type string used for the field on the
+// concrete *Foo, following protoc-gen-go's own conventions. List / map
+// modifiers are layered on top of the element type returned by
+// scalarFieldGoType.
 func (x *Generator) fieldGoType(field *protogen.Field) string {
 	g := x.g()
 	goType := x.scalarFieldGoType(field)
@@ -817,11 +576,10 @@ func (x *Generator) fieldGoType(field *protogen.Field) string {
 	return goType
 }
 
-// scalarFieldGoType returns the Go type string for the field's element kind
-// only — list/map modifiers are NOT applied here; fieldGoType wraps them on
-// top. The mapping mirrors the one used inside
-// https://pkg.go.dev/google.golang.org/protobuf/compiler/protogen for
-// consistency with the .pb.go sibling file.
+// scalarFieldGoType returns the Go type string for the field's
+// element kind only — list / map modifiers are NOT applied here
+// (fieldGoType wraps them on top). The mapping mirrors the one used
+// inside protogen for consistency with the .pb.go sibling file.
 func (x *Generator) scalarFieldGoType(field *protogen.Field) string {
 	g := x.g()
 	switch field.Desc.Kind() {

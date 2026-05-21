@@ -5,78 +5,40 @@
 A [`protoc`](https://protobuf.dev) / [`buf`](https://buf.build) plugin
 (`protoc-gen-go-const`) that generates a **read-only struct view** for
 every `message` in your `.proto` files, alongside the standard
-`protoc-gen-go` output.
+`protoc-gen-go` output. The goal is to let API boundaries (service
+layers, caches, event handlers, goroutine handoffs, …) express *"I
+only read this message"* at the type level, without copying the
+protobuf or writing hand-maintained DTOs.
 
-For each message `Foo`, it emits:
+For each message `Foo` the plugin emits, in `foo.const.pb.go`:
 
-* `Foo_Const` — a Go **struct** wrapping a single unexported `p *Foo`
-  pointer. Every field is re-exposed through a `GetName()` forwarder
-  on the wrapper: scalar / enum / `bytes` fields forward verbatim to
-  `c.p.GetName()`; message / `repeated` / `map` fields return the
-  view-native type (`Foo_Const` / `goconst.Slice` / `Foo_ConstSlice`
-  / `goconst.Map` / `Foo_ConstMap[K]`). Method names mirror the
-  concrete getter on `*Foo` — no collision, because `Foo_Const` is
-  a distinct Go type. Since the only field is unexported, a function
-  that takes `Foo_Const` physically cannot mutate the message — every
-  mutation path (`v.Field = x`, index-assign on the inner slice /
-  map, append, etc.) is closed by the Go type system at compile time.
-* `Foo_ConstSlice` / `Foo_ConstMap[K]` — Go 1.24 type aliases emitted
-  alongside every `Foo_Const`. They bake the storage type `*Foo` into
-  the underlying `goconst.Slice2` / `goconst.Map2` views so callers
-  see short, intuitive return types on getters (`Address_ConstSlice`,
-  `Address_ConstMap[int64]`) instead of the raw three-parameter
-  `goconst.Slice2[Address_Const, *Address]` /
-  `goconst.Map2[int64, Address_Const, *Address]` spelling. Since
-  aliases are a pure front-end concept, the underlying types, method
-  sets, size and ABI are unchanged — you can freely assign between
-  the alias and the raw `goconst.Slice2` / `Map2` form.
-* `func (x *Foo) AsConst() Foo_Const { return Foo_Const{p: x} }` — a
-  zero-allocation cast. The wrapper is a single-pointer struct, returned
-  by value in a register; there is no heap allocation, no indirection,
-  and no interface boxing.
-* `func (c Foo_Const) IsNil() bool { return c.p == nil }` — the only
-  supported way to ask "is there a backing message?". A direct
-  `view == nil` is a **compile error**: the wrapper is a struct type,
-  not an interface, so the classic typed-nil footgun is removed at the
-  language level rather than papered over by convention or a linter.
-* `func (c Foo_Const) Clone() *Foo` — escape hatch out of the read-only
-  view: returns a fresh, mutable deep copy of the underlying message
-  (delegates to [`proto.Clone`][protoclone]; returns `nil` for a
-  nil-backed view). Returns the **concrete** `*Foo` (not `Foo_Const`)
-  on purpose: a copy you cannot mutate would defeat the point of
-  cloning, and you can always re-wrap it via `clone.AsConst()` at zero
-  cost.
-* `func (c Foo_Const) String() string` — a one-line direct forward to
-  `c.p.String()`. The contract is **byte-for-byte equality with the
-  raw `*Foo`'s own `String()`**; no `fmt.Sprint` detour, no
-  hand-rolled nil branch, nothing that could silently diverge from
-  the upstream message's prototext rendering. This is safe because
-  the plugin only targets protoc-gen-go output, whose generated
-  `(*Foo).String()` is itself nil-safe (returns `"<nil>"` for a nil
-  receiver via `protoimpl.X.MessageStringOf`).
+| Symbol                              | What it is                                                                                  |
+| ----------------------------------- | ------------------------------------------------------------------------------------------- |
+| `type Foo_Const struct { … }`       | Read-only wrapper, one unexported `p *Foo` field — Go's type system closes every mutation path at compile time. |
+| `Foo_ConstSlice` / `Foo_ConstMap[K]`| Go 1.24 type aliases for `goconst.Slice2[Foo_Const, *Foo]` / `goconst.Map2[K, Foo_Const, *Foo]` — short return types on getters. |
+| `(*Foo).AsConst() Foo_Const`        | Zero-allocation cast (single-pointer struct returned in a register).                        |
+| `(Foo_Const).Get<Field>()`          | One-line forwarder per field; scalar / `bytes` / enum keep their stdlib type, message / `repeated` / `map` return the view-native type. |
+| `(Foo_Const).IsNil() bool`          | The only supported nil-check; `view == nil` is a **compile error**, not a typed-nil footgun. |
+| `(Foo_Const).Clone() *Foo`          | Escape hatch — `proto.Clone(c.p).(*Foo)` deep copy (re-wrap via `clone.AsConst()` at zero cost). A nil-backed view returns a typed-nil `*Foo`, matching `proto.Clone`'s own behaviour. |
+| `(Foo_Const).Equal(other Foo_Const) bool` | Semantic equality via `proto.Equal(c.p, other.p)` — the supported substitute for `==`, which is a compile error on view structs. |
+| `(Foo_Const).ToAny() (*anypb.Any, error)` | One-line bridge to `*anypb.Any` via `anypb.New(c.p)` — useful when packing a read-only view into an `Any`-typed field without first re-exposing `*Foo`. |
+| `(Foo_Const).String() string`       | Direct forward to `c.p.String()` — byte-for-byte identical to the raw message's prototext. |
 
-[protoclone]: https://pkg.go.dev/google.golang.org/protobuf/proto#Clone
-
-Repeated and map fields are returned through
+Repeated and map fields go through
 [`goconst.Slice`](goconst.go) / [`goconst.Slice2`](goconst.go) /
 [`goconst.Map`](goconst.go) / [`goconst.Map2`](goconst.go) — small
-read-only collection *structs* that preserve `len`, index / key lookup
-and ranged iteration while denying mutation at the Go type level
-(`s[i] = x`, `append(s, ...)`, `copy(s, ...)`, `clear(s)`, `m[k] = v`
-and `delete(m, k)` all fail to compile). The `*2` flavours additionally
-project each element through its `AsConst()` view on access, so the
-element type seen by callers is the callee's `_Const` wrapper rather
-than the concrete `*Message`.
-
-The goal is to let API boundaries (service layers, caches, event handlers,
-goroutine handoffs, …) express *"I only read this message"* at the type
-level, without copying the protobuf or writing hand-maintained DTOs.
+read-only collection structs that preserve `len`, indexed / keyed
+lookup, and ranged iteration while denying `s[i] = x`,
+`append(s, …)`, `copy(s, …)`, `clear(s)`, `m[k] = v`, `delete(m, k)`
+at the Go type level. The `*2` flavours additionally project each
+element through its `AsConst()` view on access, so callers see the
+callee's `_Const` wrapper rather than the concrete `*Message`.
 
 ## Why
 
 Generated `protoc-gen-go` structs expose every field as a mutable Go
-field. Once a `*Message` crosses an API boundary the callee can write to
-it, sort its slices in place, overwrite map values, etc. — and the
+field. Once a `*Message` crosses an API boundary the callee can write
+to it, sort its slices in place, overwrite map values, etc. — and the
 compiler will not stop them. `*_Const` views turn "please don't mutate
 this" comments into a **compile-time contract**:
 
@@ -110,6 +72,7 @@ import (
 	fmt "fmt"
 	goconst "github.com/Kybxd/goconst"
 	proto "google.golang.org/protobuf/proto"
+	anypb "google.golang.org/protobuf/types/known/anypb"
 )
 
 // Envelope_Const is a read-only wrapper view of *Envelope.
@@ -141,10 +104,15 @@ func (c Envelope_Const) GetByTag() Address_ConstMap[string] {
 func (c Envelope_Const) IsNil() bool { return c.p == nil }
 
 func (c Envelope_Const) Clone() *Envelope {
-	if c.p == nil {
-		return nil
-	}
 	return proto.Clone(c.p).(*Envelope)
+}
+
+func (c Envelope_Const) Equal(other Envelope_Const) bool {
+	return proto.Equal(c.p, other.p)
+}
+
+func (c Envelope_Const) ToAny() (*anypb.Any, error) {
+	return anypb.New(c.p)
 }
 
 func (c Envelope_Const) String() string {
@@ -157,82 +125,64 @@ func (c Envelope_Const) String() string {
 messages, see [`examples/gen/go/importer/importer.const.pb.go`](examples/gen/go/importer/importer.const.pb.go).)
 
 `goconst.Slice[T]` / `goconst.Slice2[T, E]` / `goconst.Map[K, V]` /
-`goconst.Map2[K, V, E]` are defined in this repo's root package (see
-[goconst.go](goconst.go)) as **concrete struct types** whose sole field
-is an unexported backing slice / map. They offer:
+`goconst.Map2[K, V, E]` are concrete struct types (see
+[goconst.go](goconst.go)) whose sole field is an unexported backing
+slice / map. Their full surface is:
 
-```go
+```**go**
 // Constable is the witness that *Message participates in the _Const scheme.
 type Constable[T any] interface{ AsConst() T }
 
-// Scalar / excluded-package elements — value type T is the stored type.
-type Slice[T any] struct { /* blank-named goconst.DoNotCompare; unexported: s []T */ }
+// Cloneable is the witness that a wrapper view T can deep-copy itself into E.
+type Cloneable[E any] interface{ Clone() E }
 
-func (c Slice[T]) Len() int
-func (c Slice[T]) At(i int) T
-func (c Slice[T]) All() iter.Seq2[int, T]   // for i, v := range s.All()
-func (c Slice[T]) Values() iter.Seq[T]      // slices.Collect(s.Values()), slices.Sorted(...)
-func (c Slice[T]) IsNil() bool
-func (c Slice[T]) String() string           // prints the underlying []T
+// Slice / Slice2 — Slice[T] stores T (scalar / excluded-package elements);
+// Slice2[T, E] stores E (e.g. *Address) and projects to T (e.g. Address_Const).
+func (Slice[T])     Len() int / At(i int) T / All() iter.Seq2[int, T] / Values() iter.Seq[T]
+                  / IsNil() bool / String() string / Clone() []T
+func (Slice2[T, E]) Len() int / At(i int) T / All() iter.Seq2[int, T] / Values() iter.Seq[T]
+                  / IsNil() bool / String() string / Clone() []E
 
-// Message elements — stored type E (e.g. *Address), projected to T (e.g. Address_Const) on access.
-type Slice2[T any, E Constable[T]] struct { /* blank-named goconst.DoNotCompare; unexported: s []E */ }
+// Map / Map2 — same split: Map[K, V] stores V; Map2[K, V, E] stores E and projects to V.
+// Get on a miss returns (zeroV, false); zeroV of a _Const view is nil-backed and safely readable.
+func (Map[K, V])      Len() int / Get(k K) (V, bool) / Has(k K) bool / All() iter.Seq2[K, V]
+                    / Keys() iter.Seq[K] / Values() iter.Seq[V]
+                    / IsNil() bool / String() string / Clone() map[K]V
+func (Map2[K, V, E])  Len() int / Get(k K) (V, bool) / Has(k K) bool / All() iter.Seq2[K, V]
+                    / Keys() iter.Seq[K] / Values() iter.Seq[V]
+                    / IsNil() bool / String() string / Clone() map[K]E
 
-func (c Slice2[T, E]) Len() int
-func (c Slice2[T, E]) At(i int) T           // returns c.s[i].AsConst()
-func (c Slice2[T, E]) All() iter.Seq2[int, T]
-func (c Slice2[T, E]) Values() iter.Seq[T]
-func (c Slice2[T, E]) IsNil() bool
-func (c Slice2[T, E]) String() string       // prints the raw []E (so messages render via their own String())
-
-// Scalar / excluded-package values — value type V is the stored type.
-type Map[K comparable, V any] struct { /* blank-named goconst.DoNotCompare; unexported: m map[K]V */ }
-
-func (c Map[K, V]) Len() int
-func (c Map[K, V]) Get(k K) (V, bool)
-func (c Map[K, V]) Has(k K) bool
-func (c Map[K, V]) All() iter.Seq2[K, V]    // for k, v := range m.All()
-func (c Map[K, V]) Keys() iter.Seq[K]       // maps.Keys-shape, pipe into slices.Collect / Sorted
-func (c Map[K, V]) Values() iter.Seq[V]     // maps.Values-shape, same idea
-func (c Map[K, V]) IsNil() bool
-func (c Map[K, V]) String() string
-
-// Message values — stored type E (e.g. *Address), projected to V (e.g. Address_Const) on access.
-type Map2[K comparable, V any, E Constable[V]] struct { /* blank-named goconst.DoNotCompare; unexported: m map[K]E */ }
-
-func (c Map2[K, V, E]) Len() int
-func (c Map2[K, V, E]) Get(k K) (V, bool)   // miss returns nil-backed AsConst() view + false
-func (c Map2[K, V, E]) Has(k K) bool
-func (c Map2[K, V, E]) All() iter.Seq2[K, V]
-func (c Map2[K, V, E]) Keys() iter.Seq[K]
-func (c Map2[K, V, E]) Values() iter.Seq[V]
-func (c Map2[K, V, E]) IsNil() bool
-func (c Map2[K, V, E]) String() string
+// Constructors — the plugin emits a one-liner per repeated / map field.
+// Type arguments are recovered automatically by Go's constraint type inference.
+func NewSlice [T any]                                       (s []T)    Slice[T]
+func NewSlice2[T Cloneable[E], E Constable[T]]              (s []E)    Slice2[T, E]
+func NewMap   [K comparable, V any]                         (m map[K]V) Map[K, V]
+func NewMap2  [K comparable, V Cloneable[E], E Constable[V]](m map[K]E) Map2[K, V, E]
 ```
 
-Callers keep O(1) length / indexed / keyed access *and* the familiar
-range-over-func syntax. Because `Values` / `Keys` return
-`iter.Seq[…]`, the read-only view plugs straight into stdlib sinks
-(`slices.Collect`, `slices.Sorted`, `maps.Collect`, …) and any
-`iter.Seq`-aware third-party helper such as `github.com/samber/lo/it`
-— higher-level algorithms (`ContainsBy`, `Find`, `MinBy`, …) live there
-rather than on this type. The four constructors are provided by the
-`goconst` package itself:
+`Values()` / `Keys()` return `iter.Seq[…]` so the views plug straight
+into stdlib sinks (`slices.Collect`, `slices.Sorted`, `maps.Collect`,
+…) and any `iter.Seq`-aware third-party helper such as
+`github.com/samber/lo/it` — higher-level algorithms (`ContainsBy`,
+`Find`, `MinBy`, …) live there rather than on these types.
 
-```go
-// Scalar / excluded-package elements — pass values through unchanged.
-func NewSlice[T any](s []T) Slice[T]
-func NewMap[K comparable, V any](m map[K]V) Map[K, V]
+`Clone()` on every collection view returns a fresh, fully-independent
+header whose mutation never reaches back into the view:
 
-// Message elements — project each element via its AsConst() method.
-func NewSlice2[T any, E Constable[T]](s []E) Slice2[T, E]
-func NewMap2[K comparable, V any, E Constable[V]](m map[K]E) Map2[K, V, E]
-```
-
-so the plugin only has to emit a **one-line companion getter** per
-message / repeated / map field. Type arguments on the constructor call
-are omitted on purpose — Go's constraint type inference recovers
-both the element type and the projected `_Const` type automatically.
+* **`Slice[T].Clone() []T` / `Map[K, V].Clone() map[K]V`** pick a
+  per-element strategy once at entry by type-switching on the static
+  element type — `proto.Message` elements (excluded-package or WKT
+  messages) are deep-copied via `proto.Clone`, `[]byte` elements are
+  detached via `bytes.Clone`, every other shape is bulk-copied
+  (matching `slices.Clone` / `maps.Clone`).
+* **`Slice2[T, E].Clone() []E` / `Map2[K, V, E].Clone() map[K]E`**
+  deep-copy each element / value by routing through the wrapper's
+  own `AsConst().Clone()` pair — fully static dispatch, no runtime
+  type assertion, and the result is the concrete `[]*Foo` /
+  `map[K]*Foo` ready to mutate. As an alternative, calling
+  `parent.Clone()` on the enclosing `Foo_Const` deep-copies the whole
+  message tree (including its nested `repeated` / `map` fields) in
+  one step.
 
 ### Compile-time read-only enforcement
 
@@ -253,7 +203,6 @@ s[0] = "x"                           // compile error: cannot index
 s = append(s, "x")                   // compile error: first argument to append must be a slice
 copy(s, tags)                        // compile error: first argument to copy must be a slice
 clear(s)                             // compile error: argument must be a map, slice, or channel
-for _, v := range s.s { ... }        // compile error: s.s is undefined (unexported)
 
 m := p.AsConst().GetAttributes()     // goconst.Map[string, string]
 m["k"] = "v"                         // compile error: cannot index
@@ -261,65 +210,115 @@ delete(m, "k")                       // compile error: first argument to delete 
 clear(m)                             // compile error (same as above)
 ```
 
-A consumer outside the `goconst` / generated package has no syntactic
-way to reach the payload short of `unsafe`/`reflect`, so the read-only
-contract is enforced by the Go type system rather than by convention
-or by a runtime check.
+Short of `unsafe` / `reflect`, a consumer outside the `goconst` /
+generated package has no syntactic way to reach the payload, so the
+read-only contract is enforced by the Go type system rather than by
+convention or a runtime check.
 
-### Typed-nil footgun, eliminated at compile time
+#### Limits: two leak boundaries
 
-Earlier iterations of this plugin exposed `Message_Const` as a Go
-**interface**. That design ran into the classic Go typed-nil trap: a
-`(*Address)(nil)` boxed into an `Address_Const` interface value had a
-non-nil itab and a nil data word, so `view == nil` evaluated to
-**false** even though there was no Address behind it. A dedicated
-linter (`cmd/nilcompare`) existed solely to flag the wrong spelling.
+The guarantee above is **maximal, not absolute**. Two narrow
+categories of fields return values whose Go type is itself mutable,
+and the wrapper cannot interpose without changing the public return
+type or paying a per-call deep-copy.
 
-The current struct-wrapper design removes the trap outright:
+**1. `bytes` fields return a raw `[]byte` aliased to the message.**
+The slice header is a fresh value copy, but the backing array is
+shared — `view.GetFBytes()[0] = 0xFF` mutates the message in place.
+This is the only mutation path `*_Const` does **not** close at the
+type level. The alternative — `bytes.Clone(...)` on every getter —
+would force a `make + memcpy` on every read, the wrong default for
+a library whose other getters are zero-cost. Callers who need a
+writable copy take it explicitly:
+
+```go
+b := bytes.Clone(view.GetFBytes())   // independent buffer
+b[0] = 0xFF                          // safe
+```
+
+The same caveat applies to `[]byte` elements inside `repeated bytes`
+and `map<…, bytes>`: `Slice[[]byte].At(i)` / `Map[K, []byte].Get(k)`
+share their backing arrays. The collection-level escape hatch is
+`Slice.Clone()` / `Map.Clone()`, which deep-copies every element via
+`bytes.Clone`.
+
+**2. Fields whose message type has no `*_Const` view.**
+For fields whose message type comes from a package matched by
+`--exclude_packages` (or from the auto-excluded
+`google.golang.org/protobuf/types/known/**` subtree), the plugin has
+no read-only handle to project to and forwards the **concrete
+`*Message` pointer** verbatim:
+
+```go
+// timestamppb.Timestamp is auto-excluded → forwarded as *timestamppb.Timestamp.
+func (c Envelope_Const) GetCreatedAt() *timestamppb.Timestamp {
+    return c.p.GetCreatedAt()
+}
+```
+
+The caller cannot reach `c.p`, but they *can* call
+`view.GetCreatedAt().Seconds = 0` and mutate the underlying message.
+The same applies to `repeated` / `map` fields whose element type is
+excluded — they are returned as `goconst.Slice[*ExternalMsg]` /
+`goconst.Map[K, *ExternalMsg]`, which prevents mutation of the
+slice / map header but still hands out raw pointers element-wise.
+Mitigation is `--exclude_packages` discipline: every excluded
+package is one mutation surface that escapes the contract.
+
+**Summary.** `goconst` provides the strongest read-only guarantee
+Go's type system allows without copying or sacrificing zero-cost
+forwards. It is not a sandbox — a determined caller with `unsafe`,
+`reflect`, a raw `bytes` slice, or a pointer to an excluded message
+can still reach through. Treat `*_Const` as the type-checked
+spelling of "I will not mutate this", not as a runtime enforcement
+boundary.
+
+### `IsNil()` and the typed-nil footgun
+
+Because `Foo_Const` is a struct (not an interface), `view == nil` is
+a **compile error** rather than the classic Go typed-nil silent
+mismatch. The only supported nil-check is `IsNil()`:
 
 ```go
 home := p.AsConst().GetHome()        // Address_Const (struct value)
 if home == nil { ... }               // ✗ compile error: cannot compare struct to nil
 
-if home.IsNil() {                    // ✓ the only supported nil-check
+if home.IsNil() {                    // ✓
     // no Home set — fall back, skip, log, ...
 } else {
     use(home.GetStreet())
 }
 ```
 
-The nil-safe-read guarantee is preserved: `home.GetStreet()` on a
-nil-backed view still returns `""` rather than panicking, because the
-scalar getter forwards to `c.p.GetStreet()` and protoc-gen-go emits
-nil-safe getters on concrete pointers. The difference is that callers
-can no longer accidentally write `view == nil` and silently disagree
-with reality — the question has to be spelled `IsNil()`, because the
-type system allows no other spelling.
+Nil-safe reads are preserved: `home.GetStreet()` on a nil-backed
+view returns `""` rather than panicking, because the scalar getter
+forwards to `c.p.GetStreet()` and `protoc-gen-go` emits nil-safe
+getters on concrete pointers.
 
-For repeated / map fields, `IsNil()` doubles as an "empty?" predicate —
-a nil slice, an empty slice, a nil map and an empty map all report true:
+For repeated / map fields, `IsNil()` reports whether the underlying
+slice / map header is nil — i.e. the field is "absent" in the
+proto-message sense. An empty-but-non-nil collection (e.g. one
+explicitly assigned `[]T{}` / `map[K]V{}`) reports `false` because
+it is "present, just empty". Use `Len() == 0` for the
+"nothing to read" reading instead:
 
 ```go
 if !envelope.GetHistory().IsNil() {
     for _, h := range envelope.GetHistory().All() { ... }
 }
+
+if envelope.GetHistory().Len() == 0 {
+    // nothing to iterate, regardless of present-empty vs absent.
+}
 ```
 
 ### `==` on views is a compile error
 
-Every view struct this library produces — both the generated
-`<Message>_Const` wrappers and the `goconst.Slice` / `Slice2` / `Map` /
-`Map2` collection views — embeds `goconst.DoNotCompare`, a zero-width
-`[0]func()` marker borrowed from
-`google.golang.org/protobuf/internal/pragma`:
-
-```go
-type DoNotCompare [0]func()
-```
-
-Because `func` is not comparable, the whole containing struct becomes
-non-comparable, so `==` / `!=` on two view values is rejected by the
-compiler:
+Every view struct — both the generated `<Message>_Const` wrappers and
+the `Slice` / `Slice2` / `Map` / `Map2` collection views — embeds
+`goconst.DoNotCompare`, a zero-width `[0]func()` marker. Because
+`func` is not comparable, the whole containing struct becomes
+non-comparable and `==` / `!=` is rejected at compile time:
 
 ```go
 a := p.AsConst()
@@ -328,60 +327,45 @@ if a == b { ... }                    // ✗ compile error: struct containing
                                      //   goconst.DoNotCompare cannot be compared
 ```
 
-Pointer-equality on a wrapper value is never the question a caller
-actually wants to ask: two views of the *same* underlying message are
-trivially equal on the wrapped pointer, but two views of
-*semantically-equal* messages are not — and the latter is the question
-one usually means by "are these views equal?". Letting the compiler
-reject the spelling outright is cleaner than relying on documentation
-or a linter; callers who really want identity on the underlying
-message can compare the two `*Message` values directly.
+Pointer-equality on a wrapper is rarely the question a caller actually
+wants: two views of the *same* message are trivially equal, two views
+of *semantically-equal* messages are not — and the latter is usually
+what "are these views equal?" means. Letting the compiler reject the
+spelling outright is cleaner than a runtime check or a linter.
+For semantic equality, every generated wrapper exposes
+`Equal(other Foo_Const) bool` — a one-line forwarder to
+`proto.Equal(c.p, other.p)`. Callers who really want pointer identity
+on the underlying message can still compare the two `*Foo` values
+directly. The marker is zero-width, so it adds no memory and no
+runtime cost.
 
-The marker is zero-width, so it adds no memory and no runtime cost;
-see `TestPerson_NonComparable` in the examples for a
-`reflect.Type.Comparable()` regression test that pins the guarantee.
+### Miss-safe defaults: the zero value of a `_Const` view
 
-### Miss-safe defaults: the Go zero value of a `_Const` view
+`AsConst()` on a nil `*Foo` produces `Foo_Const{p: nil}`, and that
+nil-backed view's scalar getters are still safe to call (forwarded to
+nil-safe `protoc-gen-go` getters). The Go zero value of a `Foo_Const`
+struct is the same `{p: nil}`, so anywhere a *zero* of the view type
+appears it is already safely readable — no special helper required:
 
-`goconst.NewSlice2` / `NewMap2` project every element through its
-`AsConst()` view, so the element type `T` is a `Foo_Const` struct
-value whose inner `p` pointer is the backing `*Foo`. The Go zero value
-of that struct is `Foo_Const{p: nil}` — i.e. the exact same
-nil-backed view that `AsConst()` on a nil `*Foo` would produce, which
-means every scalar getter on it is still safe to call.
-
-That property is enough to cover every miss-safe default pattern
-without a dedicated helper:
-
-* **`Map2[K, V, E].Get(k)` on a miss** returns `(V{}, false)` — the
-  zero value of `V` (e.g. `Foo_Const{p: nil}`). The second return
-  value is the *authoritative* presence flag; the first is
-  deliberately chosen so that `v.GetX()` is always safe to call, with
-  or without a preceding `ok` check.
-* **`Map[K, V].Get(k)` on a miss** returns `(zeroV, false)` with the
-  plain Go zero value of `V`. For scalar / enum / `bytes` element
-  types this is `""` / `0` / `false` / `nil`; for excluded-package
-  message types it is a nil concrete pointer, whose own scalar
-  getters are nil-safe by virtue of protoc-gen-go's generated code.
-* **Fallback in third-party helpers** (e.g. `lo/it.FindOrElse`): pass
-  a bare zero value of the element type — `var zero Foo_Const` or
-  the literal `Foo_Const{}` — as the default; `IsNil()` on the
-  result reports `true`, and scalar getters are safe regardless.
-
-Two recommended miss-safe patterns fall out of this:
+* **`Map[K, V].Get(k)` / `Map2[K, V, E].Get(k)` on a miss** return
+  `(zeroV, false)`. `ok` is the authoritative presence flag; the
+  first return value is deliberately a safely-readable zero (a nil
+  concrete pointer for `Map[K, *Foo]`, a `Foo_Const{p: nil}` for
+  `Map2`).
+* **Fallbacks in `iter.Seq` helpers** (e.g. `lo/it.FindOrElse`): pass
+  `Foo_Const{}` or a bare `var zero Foo_Const` as the default; scalar
+  getters on the result are safe and `IsNil()` reports `true`.
 
 ```go
-// A) With an iter.Seq-aware helper (e.g. github.com/samber/lo/it):
-//    pass the zero value of the view as the fallback so the result is
-//    always a live, safely-readable view.
+// A) iter.Seq helper with a zero-value fallback.
 addr := loi.FindOrElse(
     s.GetPrevAddresses().Values(),
-    Address_Const{}, // zero-value view: nil-backed, scalar getters safe
+    Address_Const{}, // nil-backed; scalar getters safe
     func(a Address_Const) bool { return a.GetZip() == "12345" },
 )
-_ = addr.GetCity() // safe even if no element matches
+_ = addr.GetCity() // safe even on no match
 
-// B) With a plain Map lookup: trust ok for presence, use v regardless.
+// B) Map lookup — trust ok for presence, use v regardless.
 if v, ok := m.Get(key); ok {
     use(v)
 } else {
@@ -389,118 +373,31 @@ if v, ok := m.Get(key); ok {
 }
 ```
 
-### Zero allocation, full inlining
+### Performance
 
-Because every view type is a concrete struct fully visible at the call
-site, the Go inliner flows through the generic methods as if they were
-hand-written on a native `[]T` / `map[K]V`:
+Every view type is a concrete struct fully visible at the call site,
+so the Go inliner flows through the generic methods as if they were
+hand-written on a native `[]T` / `map[K]V`. In practice:
 
-* `AsConst()` returns a `Foo_Const{p: x}` struct literal by value —
-  **0 allocs**, the value lives in a register.
-* `goconst.NewSlice(...)` / `NewSlice2(...)` / `NewMap(...)` /
-  `NewMap2(...)` are struct literals whose sole field is the caller's
-  slice / map header — **0 allocs**, the value stays on the stack.
-* `Len()`, `At(i)`, `Get(k)`, `Has(k)`, `IsNil()`, scalar `Get<Field>`
-  forwarders — **0 allocs**.
-* `All()`, `Values()`, `Keys()` return `iter.Seq` / `iter.Seq2`
-  range-over-func values that the inliner lifts directly into the
-  caller's frame, so `for i, v := range view.All()` runs at **0 allocs
-  and ~1–6 ns/op for slices, ~50 ns/op for maps** (dominated by Go's
-  map-iteration cost itself). See the benchmark table below for the
-  full matrix.
+* `AsConst()` and the four `New*` constructors are struct literals —
+  **0 allocs**, returned in a register / kept on the stack.
+* `Len()` / `At` / `Get` / `Has` / `IsNil()` and every scalar
+  `Get<Field>` forwarder — **0 allocs**.
+* `All()` / `Values()` / `Keys()` return `iter.Seq` / `iter.Seq2`
+  funcvals that the inliner lifts into the caller's frame, so
+  `for i, v := range view.All()` runs at **0 allocs** and matches the
+  native `for i, v := range raw` baseline within noise.
 
-The practical upshot: there is no "hot-path escape hatch" you need to
-reach for. The ergonomic `range view.All()` form and the indexed
-`for i := range view.Len() { use(view.At(i)) }` form have the same
-allocation profile (zero) and essentially identical iteration cost.
-Pick whichever reads better at the call site.
+This means there is no "hot-path escape hatch" to reach for: the
+ergonomic `range view.All()` form and the indexed `Len()` + `At` form
+have the same zero-allocation profile and essentially identical cost.
+Pick whichever reads better.
 
-### Debug printing
-
-`Foo_Const` implements `fmt.Stringer` via `fmt.Sprint(c.p)`, and
-`Slice` / `Map` values returned by `goconst.NewSlice(...)` /
-`NewSlice2(...)` / `NewMap(...)` / `NewMap2(...)` do the same for
-their underlying slice / map. Printing one with `fmt.Print*`,
-`log.Print*`, or `%v` produces exactly the same output as printing
-the raw `*Foo` / `[]T` / `map[K]V` would — no extra `Foo_Const{...}`
-/ `Slice[...]` / `Map[...]` wrapper, no intermediate `slices.Collect`
-/ `maps.Collect` step needed:
-
-```go
-c := envelope.AsConst()
-fmt.Println(c)                     // == fmt.Println(envelope)       (or "<nil>" if p == nil)
-
-s := goconst.NewSlice2(p.GetPrevAddresses())
-fmt.Println(s)                     // == fmt.Println(p.GetPrevAddresses())
-
-m := goconst.NewMap2(p.GetAddressBook())
-fmt.Println(m)                     // == fmt.Println(p.GetAddressBook())
-```
-
-For message-element variants (`NewSlice2` / `NewMap2`) the underlying
-protobuf messages are printed directly, so you get their rich built-in
-prototext-style `String()` rather than opaque struct-dump output.
-
-Key design points:
-
-* **Scalars / enums / `bytes`** keep the stdlib Go type; the generator
-  emits a one-line `func (c Foo_Const) GetName() T { return c.p.GetName() }`
-  forwarder that the inliner turns into a direct pointer-read.
-* **Singular message fields** switch to the callee's `T_Const` view.
-  `GetAddr()` on the wrapper is a one-liner returning
-  `c.p.GetAddr().AsConst()`. This also preserves proto3's nil-safe
-  getter semantics: if `Addr` is unset, `c.p.GetAddr()` returns
-  `(*Address)(nil)`, `AsConst()` wraps that into `Address_Const{p: nil}`,
-  and every scalar getter on the resulting view still returns zero
-  values instead of panicking.
-* **Repeated fields** switch from `[]T` to `T_ConstSlice` (a Go 1.24
-  type alias for `goconst.Slice2[T_Const, *T]`) for message elements,
-  or `goconst.Slice[T]` for scalar / excluded-package elements.
-  `GetHistory()` on the wrapper delegates to `goconst.NewSlice2(...)`
-  or `goconst.NewSlice(...)` respectively.
-* **Map fields** switch from `map[K]V` to `V_ConstMap[K]` (a Go 1.24
-  generic type alias for `goconst.Map2[K, V_Const, *V]`) for message
-  values, or `goconst.Map[K, V]` for scalar / excluded-package values,
-  likewise delegating to `goconst.NewMap2(...)` or
-  `goconst.NewMap(...)`.
-* **`oneof`** is supported; each arm's getter is emitted with the
-  appropriate element type — scalar arms keep their plain `GetNote()`
-  forwarder, message arms return the callee's `_Const` view
-  (`GetLocation()` returns `Address_Const`).
-* **Cross-package references** use `QualifiedGoIdent`, so imports for
-  `*_Const` types from other generated packages are added automatically.
-* **Zero-allocation cast**: `AsConst()` returns a single-pointer struct
-  by value. Benchmarks measure 0 allocs for the cast, 0 allocs for
-  singular message-field access, and 0 allocs across all iteration
-  paths.
-* **`Clone()` escape hatch**: every `Foo_Const` exposes
-  `Clone() *Foo`, implemented as `return proto.Clone(c.p).(*Foo)`
-  (with an explicit nil guard so a nil-backed view clones to `nil`
-  rather than panicking). It is the canonical way to leave the
-  read-only world — e.g. when a callee that received a `_Const` view
-  needs an independent, mutable copy to hand to a writer-style API or
-  to retain past the lifetime of the source. The return type is the
-  concrete `*Foo` (not `Foo_Const`) by design: a copy that the caller
-  cannot mutate would defeat the purpose, and the result can be
-  re-wrapped via `clone.AsConst()` at zero cost when only a read-only
-  handoff is needed downstream.
-
-### Iteration performance
-
-`Slice` / `Slice2` / `Map` / `Map2` are concrete struct types whose sole
-field is an unexported backing slice / map, so the Go inliner flows
-through every method — including the range-over-func shapes returned by
-`All()` / `Values()` / `Keys()` — directly into the caller's frame. The
-practical consequence is that **every iteration strategy runs at zero
-allocation**, whether you use the ergonomic `range view.All()` form or
-the indexed `Len()` + `At(i)` / `Get(k)` escape hatch.
-
-Measured on `examples/gen/go/nested` (`go test -bench`, AMD EPYC 9754,
-Go 1.24, 3-element fixtures). Slices run four iteration strategies;
-maps run three — `Len() + Get` on a map would have to drive iteration
-off the raw map and then Get once per key, so it benchmarks the raw
-map plus an extra lookup rather than a view-native path, and is
-omitted.
+Measured on `examples/gen/go/nested` (AMD EPYC 9754, Go 1.24,
+3-element fixtures). `Len() + Get` on a map is omitted because it
+would drive iteration off the raw map and then look up once per key,
+which benchmarks the native map plus an extra lookup rather than a
+view-native path.
 
 | Container                      | `for range raw`     | `for range stdlib.All(raw)` | `Len()` + `At`        | `view.All()`           |
 | ------------------------------ | ------------------- | --------------------------- | --------------------- | ---------------------- |
@@ -509,55 +406,70 @@ omitted.
 | `map[string]string` (Map)      | 50 ns / 0 allocs    | 50 ns / 0 allocs            | —                     | **50 ns / 0 allocs**   |
 | `map[int64]*Address` (Map2)    | 50 ns / 0 allocs    | 50 ns / 0 allocs            | —                     | **52 ns / 0 allocs**   |
 
-Iteration via `view.All()` is essentially free — the struct-wrapper
-design means the `iter.Seq2[…]` funcval is inlined into the caller's
-frame, so the closure environment does not escape. For slices, the
-`All()` path matches the native `for i := range raw` baseline to
-within noise; the small gap on `Slice2` / `Map2` comes from the
-per-element `AsConst()` projection, which is a single pointer-copy
-and does not allocate. For maps, `view.All()` is within a percent or
-two of ranging the underlying native map directly — the overhead is
-dominated by Go's own map iterator, not by the goconst wrapper.
+The small gap on `Slice2` / `Map2` is the per-element `AsConst()`
+projection — a single pointer-copy that does not allocate. Map
+iteration is dominated by Go's own map iterator, not by the wrapper.
 
-**Recommendation:** default to the `range view.All()` form everywhere —
-it is the most readable, it matches the native slice / map iteration
-shape, and it is already at the performance floor. The `Len()` + `At` /
-`Get` escape hatch exists for the occasional call site where indexed
-access reads better, not as a hot-path optimisation.
-
-The full benchmark matrix lives in
-[`examples/gen/go/nested/nested_const_test.go`](examples/gen/go/nested/nested_const_test.go)
-(`BenchmarkNested_RangeScalarSlice` / `…StructSlice` / `…ScalarMap` /
-`…StructMap`); reproduce with
+Reproduce with:
 
 ```bash
 go test -bench='^BenchmarkNested_Range' -benchmem ./examples/gen/go/nested/...
 ```
 
+The full benchmark matrix lives in
+[`examples/gen/go/nested/nested_const_test.go`](examples/gen/go/nested/nested_const_test.go).
+
+### Debug printing
+
+Every view implements `fmt.Stringer` by forwarding to the underlying
+`*Foo.String()` / `[]T` / `map[K]V`, so `fmt.Print*`, `log.Print*`
+and `%v` produce exactly the same output as printing the raw value
+would — no `Foo_Const{...}` / `Slice[...]` wrapper, no intermediate
+`slices.Collect` step. For `Slice2` / `Map2` this means messages
+render via their own prototext `String()` rather than as opaque
+struct dumps.
+
 ## Installation & wiring
 
-### Prerequisites
+`protoc-gen-go-const` is a standard `protoc` plugin: it reads a
+`CodeGeneratorRequest` from stdin and writes a `CodeGeneratorResponse`
+to stdout, so any protoc-plugin host (`protoc`, [`buf`](https://buf.build),
+or your own build tooling) can invoke it the same way it invokes
+`protoc-gen-go`. Pick whichever workflow your project already uses —
+no part of the plugin is buf-specific.
+
+### Install the plugin
 
 ```bash
-# buf CLI (the only binary you need on your machine)
-go install github.com/bufbuild/buf/cmd/buf@latest
+go install github.com/Kybxd/goconst/cmd/protoc-gen-go-const@latest
 ```
 
-You do **not** need to `go install protoc-gen-go` or `go build` this
-plugin:
+This drops a `protoc-gen-go-const` binary into `$(go env GOBIN)`
+(falling back to `$(go env GOPATH)/bin`); make sure that directory is
+on your `PATH` so `protoc` / `buf` can discover it like any other
+`protoc-gen-*` plugin.
 
-* **`protocolbuffers/go`** — the stock Go message generator — runs as a
-  Buf *remote* plugin pinned by tag (see below); buf fetches and
-  executes it for you.
-* **`protoc-gen-go-const`** — this repo's plugin — runs as a *local*
-  plugin via `go run ./cmd/protoc-gen-go-const/main.go`, so buf compiles
-  and executes it straight from source on every invocation.
+Consumers of the generated code must also have
+`github.com/Kybxd/goconst` in their `go.mod` (a `go mod tidy` after
+the first generation run picks it up automatically, since
+`*.const.pb.go` imports it).
 
-### Minimal `buf.gen.yaml`
+### Wire it into your generator
 
-Add this plugin as a second `go run` local plugin, writing into the same
-`out` directory as `protocolbuffers/go` so both files land next to each
-other:
+Run it alongside `protoc-gen-go` and write the output into the same
+directory, so `foo.pb.go` and `foo.const.pb.go` land side by side.
+
+**With `protoc`:**
+
+```bash
+protoc \
+  --go_out=gen/go --go_opt=paths=source_relative \
+  --go-const_out=gen/go --go-const_opt=paths=source_relative \
+  -I proto \
+  proto/foo.proto
+```
+
+**With `buf` (`buf.gen.yaml`):**
 
 ```yaml
 version: v2
@@ -568,56 +480,56 @@ plugins:
     opt:
       - paths=source_relative
 
-  - local: [ "go", "run", "github.com/Kybxd/goconst/cmd/protoc-gen-go-const" ]
+  - local: protoc-gen-go-const
     out: gen/go
     opt:
       - paths=source_relative
-      # Optional, see "exclude_packages" below. Each entry is a doublestar
-      # glob; the well-known-types subtree
-      # (`google.golang.org/protobuf/types/known/**`) is excluded
-      # automatically and does not need to be listed here.
     strategy: all
 ```
 
-Consumers of the generated code must also have
-`github.com/Kybxd/goconst` in their `go.mod` (a `go mod tidy` after the
-first `buf generate` will add it automatically, since `*.const.pb.go`
-imports it).
+(The `examples/` directory in this repo wires the plugin via
+`local: ["go", "run", "../cmd/protoc-gen-go-const/main.go"]` so its
+generated code always reflects the current source — that form is
+useful when developing the plugin itself, but downstream projects
+should prefer the installed binary above.)
 
-Then run `buf generate` as usual. For every `foo.proto` you will get two
-files side by side:
+For every `foo.proto` you will then get two files side by side:
 
-* `foo.pb.go`       — standard protobuf Go structs (from `protocolbuffers/go`)
+* `foo.pb.go`       — standard protobuf Go structs (from `protoc-gen-go`)
 * `foo.const.pb.go` — `*_Const` read-only struct views (from this plugin)
 
 ## Flag: `--exclude_packages`
 
-Comma/repeat-style flag listing Go import path **glob patterns** that
-should **not** get `*_Const` views. Each entry is matched against the
-field's owning Go import path with [doublestar][doublestar] (gitignore- /
-bash globstar-style) semantics:
-
-* a plain path matches exactly, so the legacy "list of Go import paths"
-  usage keeps working unchanged;
-* `*` / `?` match within a single `/`-separated path segment;
-* a recursive `**` segment matches any number of subpackages, including
-  nested ones — use this to bulk-exclude an entire subtree.
-
-When a field references a message from a matching package, the plugin
-keeps the concrete `*Type` signature on the `_Const` wrapper's
-`Get<Name>` method (forwarding verbatim to the concrete getter rather
-than materialising an AsConst projection or a `Slice2` / `Map2`
-collection view):
+Comma-separated / repeatable flag listing Go import path **glob
+patterns** that should **not** get `*_Const` views. Each entry is
+matched against the field's owning Go import path with
+[doublestar][doublestar] (gitignore- / bash globstar-style)
+semantics: a plain path matches exactly, `*` / `?` match within a
+single path segment, and a recursive `**` matches any depth of
+subpackages. When a field references a matching message, the plugin
+keeps the concrete `*Type` signature on the wrapper's getter
+(forwarding verbatim, no `AsConst()` / `Slice2` / `Map2` projection).
 
 ```yaml
 opt:
-  # Exact path — the legacy "list of Go import paths" usage.
   - exclude_packages=github.com/you/yourrepo/gen/go/proto/external
+  - exclude_packages=github.com/somevendor/**
 ```
+
+Typical reasons to exclude:
+
+* **Third-party / vendored protos** you don't own and therefore don't
+  run this generator against.
+* **Project-internal boundary packages** that you want to keep on the
+  concrete `*Message` API (e.g. a leaf whose callers all depend on
+  `proto.Marshal` directly).
+
+Remember that excluded packages are mutation surfaces that escape the
+read-only contract (see "Limits" above) — exclude only what you must.
 
 [doublestar]: https://github.com/bmatcuk/doublestar
 
-### Built-in defaults: well-known types are excluded automatically
+### Built-in default: well-known types are auto-excluded
 
 The plugin always applies one default exclude pattern on top of any
 `--exclude_packages` you provide:
@@ -628,41 +540,18 @@ google.golang.org/protobuf/types/known/**
 
 This recursive glob covers every WKT subpackage (`timestamppb`,
 `durationpb`, `anypb`, `wrapperspb`, `structpb`, `fieldmaskpb`,
-`emptypb`, `apipb`, `sourcecontextpb`, `typepb`, including any nested
-subpackages added upstream). You **never** need to list it in
-`--exclude_packages`; an explicit entry stays accepted for backwards
-compatibility but is now redundant.
+`emptypb`, …, including future additions). You never need to list
+it; an explicit entry is accepted for backwards compatibility but
+redundant.
 
-The reason WKT support has to be a hard-coded default rather than an
-opt-in:
-
-1. **WKTs ship without any `*_Const` / `AsConst()`.** They are produced
-   by the upstream `protocolbuffers/go` plugin in
-   `google.golang.org/protobuf/types/known/**`, which this plugin does
-   not run against. Without the default exclude, a `_Const` wrapper
-   that referenced e.g. `google.protobuf.Timestamp` would project the
-   field through a non-existent `timestamppb.Timestamp_Const` and the
-   generated file would not compile.
-2. **WKT semantics live in hand-written-looking helpers
-   (`AsTime` / `AsDuration` / `UnmarshalTo` / `AsMap` / …) that
-   `protoc-gen-go` injects via a hard-coded special case for
-   `google.protobuf.*`.** Those methods cannot be reproduced by a
-   third-party generator, so a `_Const` wrapper around a WKT would
-   strictly *lose* API surface compared to the concrete pointer.
-3. **The `google.protobuf` proto package is a stable, closed
-   protocol-level identity.** The upstream `option go_package = …`
-   on each WKT `.proto` is hard-coded into the source files, so the
-   Go-import-path glob above is the canonical match for WKTs in
-   practice.
-
-### Other typical use cases for explicit excludes
-
-1. **Third-party / vendored protos** you don't own and therefore don't
-   run this generator against.
-2. **Project-internal "boundary" packages** that you want to keep on
-   their concrete `*Message` API for one reason or another (e.g. a
-   widely-imported leaf package whose callers all rely on `proto.Marshal`
-   directly).
+WKTs are excluded by default because (a) they ship without any
+`*_Const` / `AsConst()` — they're produced by the upstream
+`protocolbuffers/go` plugin which this plugin does not run against,
+so a wrapper referencing them would fail to compile, and (b) WKT
+semantics live in hand-injected helpers (`AsTime`, `AsDuration`,
+`UnmarshalTo`, `AsMap`, …) that a third-party generator cannot
+reproduce — wrapping a WKT would strictly *lose* API surface
+compared to the concrete pointer.
 
 ## Project layout
 
