@@ -1,6 +1,6 @@
 // Temporary equivalence tests: verify that Clone() and ToAny() emitted
 // on the *_Const views produce results indistinguishable from calling
-// the native proto.Clone / anypb.New on the underlying *Message.
+// the native proto.CloneOf / anypb.New on the underlying *Message.
 //
 // These tests are intentionally narrow and disposable — they exist to
 // give us confidence in the newly added Clone/ToAny shims and can be
@@ -16,8 +16,8 @@
 // Scope note: we only care that the wrapper's nil-ness agrees with the
 // native call's nil-ness — i.e. (gotView == nil) == (gotNative == nil).
 // We do NOT re-test deep-copy independence: the wrapper's Clone() body
-// is literally `proto.Clone(c.p).(*Person)`, so independence is a
-// property of proto.Clone itself, not of the shim.
+// is literally `proto.CloneOf(c.p)`, so independence is a property of
+// proto.CloneOf itself, not of the shim.
 package nested
 
 import (
@@ -28,9 +28,9 @@ import (
 )
 
 // TestClone_EquivalentToProtoClone verifies that view.Clone() agrees
-// with proto.Clone on (a) nil-ness and (b) when both are non-nil,
+// with proto.CloneOf on (a) nil-ness and (b) when both are non-nil,
 // semantic equality. The wrapper's Clone() is a thin forward to
-// proto.Clone, so this test pins that contract.
+// proto.CloneOf, so this test pins that contract.
 func TestClone_EquivalentToProtoClone(t *testing.T) {
 	type fields struct {
 		src *Person
@@ -54,11 +54,11 @@ func TestClone_EquivalentToProtoClone(t *testing.T) {
 			view := p.AsConst()
 
 			gotView := view.Clone()
-			gotNative := proto.Clone(p).(*Person)
+			gotNative := proto.CloneOf(p)
 
 			// Nil-ness must agree with the native call.
 			if (gotView == nil) != (gotNative == nil) {
-				t.Fatalf("nil-ness mismatch: view.Clone()==nil is %v, proto.Clone(p).(*Person)==nil is %v",
+				t.Fatalf("nil-ness mismatch: view.Clone()==nil is %v, proto.CloneOf(p)==nil is %v",
 					gotView == nil, gotNative == nil)
 			}
 

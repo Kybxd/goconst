@@ -17,7 +17,7 @@ const version = "0.5.0"
 
 // protoPackage / anypbPackage / goconstPackage are the import paths
 // referenced by the emitted methods on every Foo_Const wrapper:
-// proto.Clone / proto.Equal back Clone() / Equal(); anypb.New backs
+// proto.CloneOf / proto.Equal back Clone() / Equal(); anypb.New backs
 // ToAny(); goconst.{Slice,Slice2,Map,Map2,NewSlice…,NewMap…,DoNotCompare}
 // back the read-only collection views and the wrapper struct itself.
 const (
@@ -302,7 +302,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// (4) IsNil / Clone / Equal / ToAny / String — thin forwards.
 	// IsNil is the positive nil predicate (the `view == nil` and
 	// `view == Foo_Const{}` spellings are both compile errors). Clone
-	// / Equal / ToAny / String forward verbatim to proto.Clone /
+	// / Equal / ToAny / String forward verbatim to proto.CloneOf /
 	// proto.Equal / anypb.New / (*Foo).String() so the wrapper
 	// behaviour matches each native call byte-for-byte (including
 	// nil-tolerance on Equal and "<nil>" on String).
@@ -312,7 +312,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	g.P()
 
 	g.P("func (c ", msgName, "_Const) Clone() *", msgName, " {")
-	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("Clone")), "(c.p).(*", msgName, ")")
+	g.P("return ", g.QualifiedGoIdent(protoPackage.Ident("CloneOf")), "(c.p)")
 	g.P("}")
 	g.P()
 

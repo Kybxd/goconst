@@ -59,7 +59,7 @@ func (c Person_Const) IsNil() bool {
 }
 
 func (c Person_Const) Clone() *Person {
-	return proto.Clone(c.p).(*Person)
+	return proto.CloneOf(c.p)
 }
 
 func (c Person_Const) Equal(other Person_Const) bool {
@@ -101,7 +101,7 @@ func (c Person_Tag_Const) IsNil() bool {
 }
 
 func (c Person_Tag_Const) Clone() *Person_Tag {
-	return proto.Clone(c.p).(*Person_Tag)
+	return proto.CloneOf(c.p)
 }
 
 func (c Person_Tag_Const) Equal(other Person_Tag_Const) bool {
@@ -143,7 +143,7 @@ func (c Person_Note_Const) IsNil() bool {
 }
 
 func (c Person_Note_Const) Clone() *Person_Note {
-	return proto.Clone(c.p).(*Person_Note)
+	return proto.CloneOf(c.p)
 }
 
 func (c Person_Note_Const) Equal(other Person_Note_Const) bool {

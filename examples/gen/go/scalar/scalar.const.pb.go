@@ -107,7 +107,7 @@ func (c AllScalars_Const) IsNil() bool {
 }
 
 func (c AllScalars_Const) Clone() *AllScalars {
-	return proto.Clone(c.p).(*AllScalars)
+	return proto.CloneOf(c.p)
 }
 
 func (c AllScalars_Const) Equal(other AllScalars_Const) bool {

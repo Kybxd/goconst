@@ -19,7 +19,7 @@ For each message `Foo` the plugin emits, in `foo.const.pb.go`:
 | `(*Foo).AsConst() Foo_Const`        | Zero-allocation cast (single-pointer struct returned in a register).                        |
 | `(Foo_Const).Get<Field>()`          | One-line forwarder per field; scalar / `bytes` / enum keep their stdlib type, message / `repeated` / `map` return the view-native type. |
 | `(Foo_Const).IsNil() bool`          | The only supported nil-check; `view == nil` is a **compile error**, not a typed-nil footgun. |
-| `(Foo_Const).Clone() *Foo`          | Escape hatch — `proto.Clone(c.p).(*Foo)` deep copy (re-wrap via `clone.AsConst()` at zero cost). A nil-backed view returns a typed-nil `*Foo`, matching `proto.Clone`'s own behaviour. |
+| `(Foo_Const).Clone() *Foo`          | Escape hatch — `proto.CloneOf(c.p)` deep copy (re-wrap via `clone.AsConst()` at zero cost). A nil-backed view returns a typed-nil `*Foo`, matching `proto.CloneOf`'s own behaviour. |
 | `(Foo_Const).Equal(other Foo_Const) bool` | Semantic equality via `proto.Equal(c.p, other.p)` — the supported substitute for `==`, which is a compile error on view structs. |
 | `(Foo_Const).ToAny() (*anypb.Any, error)` | One-line bridge to `*anypb.Any` via `anypb.New(c.p)` — useful when packing a read-only view into an `Any`-typed field without first re-exposing `*Foo`. |
 | `(Foo_Const).String() string`       | Direct forward to `c.p.String()` — byte-for-byte identical to the raw message's prototext. |
@@ -104,7 +104,7 @@ func (c Envelope_Const) GetByTag() Address_ConstMap[string] {
 func (c Envelope_Const) IsNil() bool { return c.p == nil }
 
 func (c Envelope_Const) Clone() *Envelope {
-	return proto.Clone(c.p).(*Envelope)
+	return proto.CloneOf(c.p)
 }
 
 func (c Envelope_Const) Equal(other Envelope_Const) bool {

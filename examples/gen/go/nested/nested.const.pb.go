@@ -43,7 +43,7 @@ func (c Address_Const) IsNil() bool {
 }
 
 func (c Address_Const) Clone() *Address {
-	return proto.Clone(c.p).(*Address)
+	return proto.CloneOf(c.p)
 }
 
 func (c Address_Const) Equal(other Address_Const) bool {
@@ -109,7 +109,7 @@ func (c Person_Const) IsNil() bool {
 }
 
 func (c Person_Const) Clone() *Person {
-	return proto.Clone(c.p).(*Person)
+	return proto.CloneOf(c.p)
 }
 
 func (c Person_Const) Equal(other Person_Const) bool {
@@ -155,7 +155,7 @@ func (c Person_Contact_Const) IsNil() bool {
 }
 
 func (c Person_Contact_Const) Clone() *Person_Contact {
-	return proto.Clone(c.p).(*Person_Contact)
+	return proto.CloneOf(c.p)
 }
 
 func (c Person_Contact_Const) Equal(other Person_Contact_Const) bool {

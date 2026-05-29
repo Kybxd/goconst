@@ -66,7 +66,7 @@ func (c Envelope_Const) IsNil() bool {
 }
 
 func (c Envelope_Const) Clone() *Envelope {
-	return proto.Clone(c.p).(*Envelope)
+	return proto.CloneOf(c.p)
 }
 
 func (c Envelope_Const) Equal(other Envelope_Const) bool {

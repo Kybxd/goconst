@@ -48,7 +48,7 @@ func (c Event_Const) IsNil() bool {
 }
 
 func (c Event_Const) Clone() *Event {
-	return proto.Clone(c.p).(*Event)
+	return proto.CloneOf(c.p)
 }
 
 func (c Event_Const) Equal(other Event_Const) bool {
