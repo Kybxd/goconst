@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.5.0"
+const version = "0.5.1"
 
 // protoPackage / anypbPackage / goconstPackage are the import paths
 // referenced by the emitted methods on every Foo_Const wrapper:
