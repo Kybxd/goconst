@@ -126,6 +126,16 @@ func (c Slice[T]) Len() int { return len(c.s) }
 // indexing.
 func (c Slice[T]) At(i int) T { return c.s[i] }
 
+// Front returns the first element. Convenience alias for At(0), so
+// the same out-of-range panic applies on an empty slice — guard with
+// Len() > 0 if "no element" is a reachable state.
+func (c Slice[T]) Front() T { return c.s[0] }
+
+// Back returns the last element. Convenience alias for
+// At(Len()-1), so the same out-of-range panic applies on an empty
+// slice — guard with Len() > 0 if "no element" is a reachable state.
+func (c Slice[T]) Back() T { return c.s[len(c.s)-1] }
+
 // All returns an iterator yielding (index, element) pairs in order.
 // Analogue of [slices.All].
 func (c Slice[T]) All() iter.Seq2[int, T] { return slices.All(c.s) }
@@ -210,6 +220,18 @@ func (c Slice2[T, E]) Len() int { return len(c.s) }
 // At returns the AsConst() projection of the element at index i,
 // panicking with an out-of-range error for i ∉ [0, Len()).
 func (c Slice2[T, E]) At(i int) T { return c.s[i].AsConst() }
+
+// Front returns the AsConst() projection of the first element.
+// Convenience alias for At(0), so the same out-of-range panic
+// applies on an empty slice — guard with Len() > 0 if "no element"
+// is a reachable state.
+func (c Slice2[T, E]) Front() T { return c.s[0].AsConst() }
+
+// Back returns the AsConst() projection of the last element.
+// Convenience alias for At(Len()-1), so the same out-of-range panic
+// applies on an empty slice — guard with Len() > 0 if "no element"
+// is a reachable state.
+func (c Slice2[T, E]) Back() T { return c.s[len(c.s)-1].AsConst() }
 
 // All returns an iterator yielding (index, projected element) pairs
 // in order. The yielded value type is the read-only view T, not the

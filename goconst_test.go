@@ -63,6 +63,64 @@ func TestSlice_IsNil(t *testing.T) {
 	}
 }
 
+// -----------------------------------------------------------------
+// Slice.Front / Slice.Back — convenience aliases for At(0) /
+// At(Len()-1), so they panic on an empty (or nil-backed) slice with
+// the same out-of-range semantics as built-in slice indexing.
+// -----------------------------------------------------------------
+
+func TestSlice_Front_Back(t *testing.T) {
+	view := NewSlice([]string{"a", "b", "c"})
+	if got, want := view.Front(), "a"; got != want {
+		t.Errorf("Front() = %q, want %q", got, want)
+	}
+	if got, want := view.Back(), "c"; got != want {
+		t.Errorf("Back() = %q, want %q", got, want)
+	}
+
+	// Single-element slice: Front == Back.
+	one := NewSlice([]int{42})
+	if one.Front() != 42 || one.Back() != 42 {
+		t.Errorf("single-element: Front()=%d Back()=%d, want 42/42", one.Front(), one.Back())
+	}
+}
+
+func TestSlice_Front_PanicsOnEmpty(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Front() on empty Slice did not panic")
+		}
+	}()
+	_ = NewSlice([]string{}).Front()
+}
+
+func TestSlice_Back_PanicsOnEmpty(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Back() on empty Slice did not panic")
+		}
+	}()
+	_ = NewSlice([]string{}).Back()
+}
+
+func TestSlice_Front_PanicsOnNilBacking(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Front() on nil-backed Slice did not panic")
+		}
+	}()
+	_ = NewSlice[string](nil).Front()
+}
+
+func TestSlice_Back_PanicsOnNilBacking(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatalf("Back() on nil-backed Slice did not panic")
+		}
+	}()
+	_ = NewSlice[string](nil).Back()
+}
+
 func TestMap_IsNil(t *testing.T) {
 	if got := NewMap[string, int](nil).IsNil(); !got {
 		t.Errorf("nil-backed Map.IsNil() = false, want true")

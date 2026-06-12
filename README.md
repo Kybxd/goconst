@@ -138,9 +138,11 @@ type Cloneable[E any] interface{ Clone() E }
 
 // Slice / Slice2 — Slice[T] stores T (scalar / excluded-package elements);
 // Slice2[T, E] stores E (e.g. *Address) and projects to T (e.g. Address_Const).
-func (Slice[T])     Len() int / At(i int) T / All() iter.Seq2[int, T] / Values() iter.Seq[T]
+func (Slice[T])     Len() int / At(i int) T / Front() T / Back() T
+                  / All() iter.Seq2[int, T] / Values() iter.Seq[T]
                   / IsNil() bool / String() string / Clone() []T
-func (Slice2[T, E]) Len() int / At(i int) T / All() iter.Seq2[int, T] / Values() iter.Seq[T]
+func (Slice2[T, E]) Len() int / At(i int) T / Front() T / Back() T
+                  / All() iter.Seq2[int, T] / Values() iter.Seq[T]
                   / IsNil() bool / String() string / Clone() []E
 
 // Map / Map2 — same split: Map[K, V] stores V; Map2[K, V, E] stores E and projects to V.
