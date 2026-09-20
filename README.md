@@ -15,7 +15,7 @@ For each message `Foo` the plugin emits, in `foo.const.pb.go`:
 | Symbol                              | What it is                                                                                  |
 | ----------------------------------- | ------------------------------------------------------------------------------------------- |
 | `type Foo_Const struct { … }`       | Read-only wrapper, one unexported `p *Foo` field — Go's type system closes every mutation path at compile time. |
-| `Foo_ConstSlice` / `Foo_ConstMap[K]`| Go 1.24 type aliases for `goconst.Slice2[Foo_Const, *Foo]` / `goconst.Map2[K, Foo_Const, *Foo]` — short return types on getters. |
+| `Foo_ConstSlice` / `Foo_ConstMap[K]`| Go 1.24 type aliases for `goconst.Slice2[Foo_Const, *Foo]` / `goconst.Map2[K, Foo_Const, *Foo]` — short spellings for your own signatures. Generated `repeated` getters return `Foo_ConstSlice`; generated `map` getters deliberately write `goconst.Map2[…]` out in full ([why](#why-map-getters-spell-out-goconstmap2)). |
 | `(*Foo).AsConst() Foo_Const`        | Zero-allocation cast (single-pointer struct returned in a register).                        |
 | `(Foo_Const).Get<Field>()`          | One-line forwarder per field; scalar / `bytes` / enum keep their stdlib type, message / `repeated` / `map` return the view-native type. |
 | `(Foo_Const).IsNil() bool`          | The only supported nil-check; `view == nil` is a **compile error**, not a typed-nil footgun. |
@@ -97,7 +97,10 @@ func (c Envelope_Const) GetHistory() Address_ConstSlice {
 	return goconst.NewSlice2(c.p.GetHistory())
 }
 
-func (c Envelope_Const) GetByTag() Address_ConstMap[string] {
+// NOTE: written out rather than the equivalent Address_ConstMap[string] alias —
+// instantiating a generic alias in a method signature trips
+// golang/go#79711 (importer deadlock) on recursive messages.
+func (c Envelope_Const) GetByTag() goconst.Map2[string, Address_Const, *Address] {
 	return goconst.NewMap2(c.p.GetByTag())
 }
 
@@ -431,6 +434,102 @@ would — no `Foo_Const{...}` / `Slice[...]` wrapper, no intermediate
 render via their own prototext `String()` rather than as opaque
 struct dumps.
 
+### Why map getters spell out `goconst.Map2`
+
+Generated `repeated` getters return the short per-message alias
+(`Address_ConstSlice`), but generated `map` getters return the fully
+expanded `goconst.Map2[K, Address_Const, *Address]` even though
+`Address_ConstMap[K]` denotes exactly the same type. This asymmetry
+is a deliberate workaround for an open Go compiler bug, not a style
+choice.
+
+**The bug.** Instantiating a *generic* type alias inside an exported
+method signature crashes the compiler when the alias's type arguments
+close an instantiation cycle — [golang/go#79711][gobug] (`NeedsFix`,
+milestone Go 1.28; see also [#75757][gobug2]). A message holding a
+`map` of itself is precisely that shape:
+
+```proto
+message PackNode {
+  map<int64, PackNode> children = 1;   // the cycle
+}
+```
+
+```go
+type PackNode_ConstMap[K comparable] = goconst.Map2[K, PackNode_Const, *PackNode]
+
+// If the getter used the alias, this signature closes the cycle:
+func (c PackNode_Const) GetChildren() PackNode_ConstMap[int64] { … }
+```
+
+The defining package still compiles. Every **other** package that
+imports it and touches `PackNode_Const` dies with a hard compiler
+crash:
+
+```
+# yourmodule/consumer
+fatal error: all goroutines are asleep - deadlock!
+
+goroutine 1 [sync.Mutex.Lock]:
+cmd/compile/internal/types2.(*Named).unpack(...)
+cmd/compile/internal/types2.(*subster).typ(...)
+cmd/compile/internal/types2.(*Checker).newAliasInstance(...)
+cmd/compile/internal/importer.(*reader).doTyp(...)
+```
+
+`types2`'s unified importer re-enters a mutex it already holds while
+substituting the alias's type arguments. Reproduced on Go **1.24.9 /
+1.25.3 / 1.26.4** — generic aliases landed in 1.24, so every release
+that has the feature has the bug.
+
+**Why the fix is unconditional.** The generator cannot simply special
+-case "message references itself": the cycle is often indirect, and
+it can span files and packages that a single generator run never sees
+together.
+
+```proto
+message A { map<int64, B> bs = 1; }   // A → B → A: same crash,
+message B { map<int64, A> as = 1; }   // no self-reference anywhere
+```
+
+So every message-valued map getter is expanded, cyclic or not.
+
+**What is *not* affected** (and therefore left alone):
+
+| Shape | Generated return type | Affected? |
+| ----- | --------------------- | --------- |
+| `map<K, Msg>` | `goconst.Map2[K, Msg_Const, *Msg]` | was the trigger — now expanded |
+| `repeated Msg` | `Msg_ConstSlice` | no — a non-generic alias never reaches `newAliasInstance` |
+| singular `Msg` | `Msg_Const` | no — not an alias |
+| `map<K, scalar>` / excluded-package values | `goconst.Map[K, V]` | no — not an alias |
+
+**The aliases are still emitted, and still safe for you to use.**
+`Msg_ConstMap[K]` remains in the generated output and is verified to
+work in consumer packages — in variables, struct fields, parameters
+and return types of *hand-written* code. Only the generator avoids
+it, because generated getters are what the failing import path walks:
+
+```go
+// All fine in your own code:
+func handle(m recursive.SelfMap_ConstMap[int64]) int { return m.Len() }
+type cache struct{ nodes recursive.SelfMap_ConstMap[int64] }
+```
+
+**Cost.** None beyond signature length — an alias and its expansion
+are the same type, so this is source-compatible in both directions.
+Upgrading from a pre-0.6.0 generator changes only the spelling in
+`*.const.pb.go`; no caller needs to change.
+
+**Detection caveat.** This is a compiler crash, not a type error:
+`go vet`, `gopls` and `go/types`-based tooling all report success.
+Only a real `go build` / `go test` of an importing package surfaces
+it — which is why the regression guard
+([`examples/regression/aliascycle`](examples/regression/aliascycle))
+is a separate package rather than a test beside the generated code.
+
+[gobug]: https://github.com/golang/go/issues/79711
+[gobug2]: https://github.com/golang/go/issues/75757
+
 ## Installation & wiring
 
 `protoc-gen-go-const` is a standard `protoc` plugin: it reads a
@@ -565,6 +664,7 @@ compared to the concrete pointer.
 ├── examples/                   # hand-crafted protos exercising every branch
 │   ├── proto/<leaf>/           # source .proto files
 │   ├── gen/go/<leaf>/          # generated .pb.go + .const.pb.go (checked in as golden)
+│   ├── regression/             # hand-written packages that must compile (see below)
 │   ├── buf.yaml
 │   └── buf.gen.yaml
 ├── go.mod
@@ -582,6 +682,12 @@ exercises and how to regenerate them locally.
 | `google.golang.org/protobuf`   | v1.36.11                                                |
 | `buf.build/protocolbuffers/go` | v1.36.11 (kept in sync with the above)                  |
 | proto editions supported       | proto2 → edition 2024 (via `FEATURE_SUPPORTS_EDITIONS`) |
+
+Verified against Go 1.24.9, 1.25.3 and 1.26.4. No upper bound is
+known; the one compiler-version-sensitive area is the generic-alias
+instantiation bug described in
+["Why map getters spell out `goconst.Map2`"](#why-map-getters-spell-out-goconstmap2),
+which the generator works around on every supported release.
 
 When bumping `google.golang.org/protobuf` in `go.mod`, bump the
 `protocolbuffers/go` remote tag in your `buf.gen.yaml` to the same

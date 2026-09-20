@@ -13,7 +13,34 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.5.2"
+const version = "0.6.0"
+
+// mapAliasCycleNote is emitted above every map getter whose value is a
+// non-excluded message, explaining why the signature spells out
+// goconst.Map2[K, V_Const, *V] instead of the shorter per-message
+// generic alias V_ConstMap[K] that denotes the same type.
+//
+// Instantiating a *generic* alias in an exported method signature
+// trips golang/go#79711 (see also #75757) whenever the alias's type
+// arguments close an instantiation cycle. A message holding
+// map<K, Itself> — or two messages holding maps of each other — is
+// exactly that shape:
+//
+//	type PackNode_ConstMap[K comparable] = goconst.Map2[K, PackNode_Const, *PackNode]
+//	func (c PackNode_Const) GetChildren() PackNode_ConstMap[int64]
+//
+// The defining package compiles; every *importing* package that
+// touches PackNode_Const dies with "fatal error: all goroutines are
+// asleep - deadlock!" inside types2's unified importer
+// (Named.unpack re-entering a held mutex via newAliasInstance).
+// Reproduced on Go 1.24.9 / 1.25.3 / 1.26.4; upstream milestone is
+// Go 1.28.
+//
+// Repeated fields are unaffected: V_ConstSlice is a non-generic
+// alias, and only generic aliases go through newAliasInstance.
+const mapAliasCycleNote = "// NOTE: written out rather than the equivalent %s_ConstMap[%s] alias —\n" +
+	"// instantiating a generic alias in a method signature trips\n" +
+	"// golang/go#79711 (importer deadlock) on recursive messages."
 
 // protoPackage / anypbPackage / goconstPackage are the import paths
 // referenced by the emitted methods on every Foo_Const wrapper:
@@ -261,7 +288,7 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 
 	// (1b) Per-message Go 1.24 collection aliases that bake the
 	// storage type *Foo into the projecting collection views, so
-	// getter signatures stay short:
+	// user-written signatures stay short:
 	//
 	//   <Msg>_ConstSlice             = goconst.Slice2[<Msg>_Const, *<Msg>]
 	//   <Msg>_ConstMap[K comparable] = goconst.Map2[K, <Msg>_Const, *<Msg>]
@@ -269,6 +296,14 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// Always emitted (regardless of whether this message is actually
 	// used as a repeated / map element) so the surface of every
 	// _Const view is uniform.
+	//
+	// Note the asymmetry with the getters emitted below: GetXxx on a
+	// repeated message field returns <Msg>_ConstSlice, but GetXxx on
+	// a map field returns the expanded goconst.Map2[…]. _ConstSlice
+	// is a plain alias and is safe anywhere; _ConstMap[K] is a
+	// *generic* alias and cannot appear in a generated method
+	// signature without risking golang/go#79711 — see
+	// mapContainerType and mapAliasCycleNote.
 	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
 		"[", msgName, "_Const, *", msgName, "]")
 	g.P("type ", msgName, "_ConstMap[K comparable] = ",
@@ -446,6 +481,11 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 		wrapAsConst := x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message)
 		retType := x.mapContainerType(field)
 
+		if wrapAsConst {
+			g.P(fmt.Sprintf(mapAliasCycleNote,
+				valField.Message.GoIdent.GoName,
+				x.fieldGoType(field.Message.Fields[0])))
+		}
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")),
@@ -503,22 +543,38 @@ func (x *Generator) sliceContainerType(field *protogen.Field) string {
 		g.QualifiedGoIdent(goconstPackage.Ident("Slice")), x.fieldElemConstType(field))
 }
 
-// mapContainerType returns the goconst.Map[…] / <ValueMsg>_ConstMap[K]
-// type string for a map field. Non-excluded message values use the
-// per-message Go 1.24 generic alias <ValueMsg>_ConstMap[K]; everything
-// else uses goconst.Map[K, V]. Keys are always scalar / enum / bytes
-// in proto3, so no projection logic is needed on the key side.
+// mapContainerType returns the goconst.Map[…] / goconst.Map2[…] type
+// string for a map field. Keys are always scalar / enum / bytes in
+// proto3, so no projection logic is needed on the key side.
+//
+// Message-valued maps deliberately spell out the *fully expanded*
+// goconst.Map2[K, V_Const, *V] rather than the per-message generic
+// alias <ValueMsg>_ConstMap[K], even though the two denote the same
+// type. Instantiating a *generic* alias inside an exported method
+// signature trips a compiler bug (golang/go#79711, also #75757) when
+// the alias's type arguments form an instantiation cycle — which is
+// exactly the shape of a message holding map<K, ItselfOrACycle>:
+//
+//	type PackNode_ConstMap[K comparable] = goconst.Map2[K, PackNode_Const, *PackNode]
+//	func (c PackNode_Const) GetChildren() PackNode_ConstMap[int64] // ← boom
+//
+// The defining package compiles fine; any *other* package that
+// imports it and touches PackNode_Const dies with "fatal error: all
+// goroutines are asleep - deadlock!" inside types2's unified
+// importer. Writing the expansion sidesteps it with zero semantic
+// change. See mapAliasCycleNote and the README ("Why map getters
+// spell out goconst.Map2") for the full story.
 func (x *Generator) mapContainerType(field *protogen.Field) string {
 	g := x.g()
 	keyField := field.Message.Fields[0]
 	valField := field.Message.Fields[1]
 	keyType := x.fieldGoType(keyField)
 	if x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message) {
-		aliasIdent := g.QualifiedGoIdent(protogen.GoIdent{
-			GoName:       valField.Message.GoIdent.GoName + "_ConstMap",
-			GoImportPath: valField.Message.GoIdent.GoImportPath,
-		})
-		return fmt.Sprintf("%s[%s]", aliasIdent, keyType)
+		return fmt.Sprintf("%s[%s, %s, *%s]",
+			g.QualifiedGoIdent(goconstPackage.Ident("Map2")),
+			keyType,
+			x.messageConstGoType(valField.Message),
+			g.QualifiedGoIdent(valField.Message.GoIdent))
 	}
 	valType := x.fieldElemConstType(valField)
 	return fmt.Sprintf("%s[%s, %s]",

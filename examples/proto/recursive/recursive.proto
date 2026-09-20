@@ -1,0 +1,51 @@
+// recursive.proto pins the golang/go#79711 regression: messages whose
+// map values close an instantiation cycle. Before the fix, the map
+// getters here returned the per-message generic alias
+// <Msg>_ConstMap[K], which made any *importing* package die with
+// "fatal error: all goroutines are asleep - deadlock!" inside the
+// compiler's unified importer. The getters must spell out
+// goconst.Map2[K, <Msg>_Const, *<Msg>] instead.
+//
+// The cross-package half of the regression lives in
+// ../consumer/consumer.proto — the deadlock only reproduces from a
+// package that imports these types, never from this one.
+syntax = "proto3";
+
+package recursive;
+
+// SelfMap is the direct cycle: a message holding a map of itself.
+// Modelled on the real-world report (a recursive loot-table node).
+message SelfMap {
+  string id = 1;
+  map<int64, SelfMap> children = 2;
+  // Non-message map values keep the plain goconst.Map[K, V] form and
+  // are unaffected by the alias cycle; kept here so the fix is not
+  // accidentally over-applied.
+  map<int64, bool> flags = 3;
+  // Self-referential repeated / singular fields stay on the
+  // non-generic <Msg>_ConstSlice alias / <Msg>_Const, which the
+  // compiler bug does not reach.
+  repeated SelfMap siblings = 4;
+  SelfMap parent = 5;
+}
+
+// MutualA / MutualB close the cycle indirectly. The generator cannot
+// detect this shape by comparing a field's message to its parent,
+// which is why the expansion is applied unconditionally.
+message MutualA {
+  map<int64, MutualB> bs = 1;
+}
+
+message MutualB {
+  map<int64, MutualA> as = 1;
+}
+
+// NestedSelf puts the cycle on a nested type pointing back at its
+// enclosing message.
+message NestedSelf {
+  message Inner {
+    map<string, NestedSelf> outers = 1;
+    map<string, Inner> inners = 2;
+  }
+  Inner inner = 1;
+}

@@ -19,6 +19,7 @@ types), see the [root README](../README.md).
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `proto/scalar/scalar.proto`     | every scalar kind + enum + proto3 `optional`                                                                                                                                             |
 | `proto/nested/nested.proto`     | nested messages, repeated scalar/message, map with scalar/message value, recursion                                                                                                       |
+| `proto/recursive/recursive.proto` | messages whose `map` values close an instantiation cycle (direct `map<K, Self>`, indirect `A → B → A`, nested-type back-reference) — pins the [golang/go#79711][gobug] workaround   |
 | `proto/oneof/oneof.proto`       | `oneof` arms (scalar + cross-file message)                                                                                                                                               |
 | `proto/external/external.proto` | a standalone package used as the `--exclude_packages` target                                                                                                                             |
 | `proto/importer/importer.proto` | cross-package references to an excluded in-repo package, a non-excluded in-repo package, **and a well-known type (`google.protobuf.Timestamp`)**, in singular / repeated / map positions |
@@ -57,6 +58,41 @@ go test ./examples/...
 
 Each generated Go package has a sibling `*_const_test.go` that exercises
 the emitted `*_Const` struct wrapper against the concrete `*Message`.
+
+## `regression/` — guards that must *compile*
+
+[`regression/aliascycle`](regression/aliascycle) is hand-written (not
+generated) and lives outside `gen/go/` on purpose. It imports the
+views generated from `proto/recursive/recursive.proto` and touches
+their map getters.
+
+Its value is the compilation itself. Instantiating a generic alias
+such as `SelfMap_ConstMap[int64]` in a generated method signature
+trips [golang/go#79711][gobug]: the **defining** package still builds,
+but any package importing it crashes the compiler with
+
+```
+fatal error: all goroutines are asleep - deadlock!
+cmd/compile/internal/types2.(*Named).unpack(...)
+```
+
+So a test next to `gen/go/recursive/` would pass even with the bug
+present — the guard has to be a separate compilation unit. It is
+covered by the ordinary `go build ./...` / `go test ./...` above.
+
+Two things to know when touching this area:
+
+* This is a **compiler crash, not a type error**. `go vet`, `gopls`
+  and every `go/types`-based linter report success regardless, so CI
+  must actually build the package.
+* The generator's countermeasure is to write map getter return types
+  out in full (`goconst.Map2[K, V_Const, *V]`) instead of using the
+  `V_ConstMap[K]` alias. See
+  [root README → Why map getters spell out `goconst.Map2`](../README.md#why-map-getters-spell-out-goconstmap2).
+  The aliases themselves are still generated and remain safe in
+  hand-written code.
+
+[gobug]: https://github.com/golang/go/issues/79711
 
 ## Toggling `--exclude_packages`
 
@@ -105,16 +141,22 @@ To see the **opposite** behaviour for the in-repo `external` package,
 comment its `exclude_packages=...` line out and rerun `buf generate`:
 the same `GetExt()` / `GetExtras()` / `GetExtMap()` methods will then
 return `External_Const` views with `.AsConst()` chained under the
-hood. The `Slice` / `Map` return types in the generated code will also
-switch to the per-message Go 1.24 alias forms — `External_ConstSlice`
-(an alias for `goconst.Slice2[External_Const, *external.External]`)
-and `External_ConstMap[string]` (an alias for
-`goconst.Map2[string, External_Const, *external.External]`) — which
-apply the `AsConst()` projection on access. The rule is: **the
-`_ConstSlice` / `_ConstMap[K]` aliases (backed by `Slice2` / `Map2`)
-appear whenever the element / value is a message from a non-excluded
-package**, and `Slice` / `Map` appear for scalar element / value types
-and for messages from excluded packages.
+hood, and the collection return types switch to their projecting
+`Slice2` / `Map2` forms — `GetExtras()` to the alias
+`External_ConstSlice` (= `goconst.Slice2[External_Const, *external.External]`)
+and `GetExtMap()` to the written-out
+`goconst.Map2[string, External_Const, *external.External]`.
+
+The rule is: **`Slice2` / `Map2` (projecting) appear whenever the
+element / value is a message from a non-excluded package**, and
+`Slice` / `Map` appear for scalar element / value types and for
+messages from excluded packages.
+
+Note the spelling asymmetry — repeated getters use the
+`_ConstSlice` alias, map getters write `goconst.Map2[…]` out in full.
+Both denote the same types as the corresponding aliases; the map side
+avoids `_ConstMap[K]` to dodge [golang/go#79711][gobug], as described
+under [`regression/`](#regression--guards-that-must-compile) above.
 
 > ℹ️ The WKT fields on `importer.proto` (`created_at`, `history`,
 > `ts_map`) are kept on the concrete `*timestamppb.Timestamp` type by
