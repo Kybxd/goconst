@@ -86,3 +86,45 @@ func TestMutualAndNestedCycles(t *testing.T) {
 		t.Fatalf("nested width = %d", got)
 	}
 }
+
+// TestPointsAtCycle covers the precision case: getters that keep the
+// short alias because their edge is not on a cycle, even though the
+// value type is a cycle member. Behaviour must be identical to the
+// expanded form.
+func TestPointsAtCycle(t *testing.T) {
+	p := &recursive.PointsAtCycle{
+		Nodes: map[int64]*recursive.SelfMap{
+			1: {Id: "n1", Children: map[int64]*recursive.SelfMap{11: {Id: "n11"}}},
+		},
+		Mutuals: map[int64]*recursive.MutualA{
+			1: {Bs: map[int64]*recursive.MutualB{2: {}}},
+		},
+	}
+	c := p.AsConst()
+
+	if got := PointsAtCycleWidth(c); got != 2 {
+		t.Fatalf("width = %d", got)
+	}
+
+	// The alias-returning getter still projects to a _Const view and
+	// still reaches the expanded, cyclic getter underneath it.
+	node, ok := c.GetNodes().Get(1)
+	if !ok || node.GetId() != "n1" {
+		t.Fatalf("node = %q ok=%v", node.GetId(), ok)
+	}
+	grand, ok := node.GetChildren().Get(11)
+	if !ok || grand.GetId() != "n11" {
+		t.Fatalf("grandchild = %q ok=%v", grand.GetId(), ok)
+	}
+
+	// Aliases are usable as plain types from a consumer package.
+	if got := PointsAtCycleAliasTypes(c.GetNodes(), recursive.NestedSelf_ConstMap[string]{}); got != 1 {
+		t.Fatalf("alias-typed params = %d", got)
+	}
+
+	// Miss on an alias-form map is equally nil-backed and safe.
+	miss, ok := c.GetNodes().Get(999)
+	if ok || !miss.IsNil() || miss.GetId() != "" {
+		t.Fatalf("miss = %v ok=%v", miss, ok)
+	}
+}

@@ -1,0 +1,31 @@
+// xpkgpointer.proto pins the cross-file / cross-package half of the
+// golang/go#79711 reasoning.
+//
+// Holder holds maps whose value types (recursive.SelfMap,
+// recursive.MutualA) are themselves cycle members, but nothing in the
+// recursive package can lead back to Holder — that would require
+// recursive.proto to import this file while this file imports it,
+// which protoc rejects as a cyclic import.
+//
+// So these edges are not on a cycle and must keep the short
+// recursive.SelfMap_ConstMap[int64] / recursive.MutualA_ConstMap[int64]
+// aliases. That is what makes the generator's per-file cycle graph
+// sound: a graph over one .proto's messages decides the question
+// exactly, because a cycle can never span files.
+//
+// ../../regression/xpkgguard compiles these getters from a third
+// package, which is where the alias would blow up if the reasoning
+// were wrong.
+syntax = "proto3";
+
+package xpkgpointer;
+
+import "recursive/recursive.proto";
+
+message Holder {
+  map<int64, recursive.SelfMap> nodes = 1;
+  map<int64, recursive.MutualA> mutuals = 2;
+  // Control: a repeated cross-package cycle member keeps its
+  // non-generic alias, as everywhere else.
+  repeated recursive.SelfMap history = 3;
+}

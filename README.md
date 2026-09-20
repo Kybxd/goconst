@@ -15,7 +15,7 @@ For each message `Foo` the plugin emits, in `foo.const.pb.go`:
 | Symbol                              | What it is                                                                                  |
 | ----------------------------------- | ------------------------------------------------------------------------------------------- |
 | `type Foo_Const struct { … }`       | Read-only wrapper, one unexported `p *Foo` field — Go's type system closes every mutation path at compile time. |
-| `Foo_ConstSlice` / `Foo_ConstMap[K]`| Go 1.24 type aliases for `goconst.Slice2[Foo_Const, *Foo]` / `goconst.Map2[K, Foo_Const, *Foo]` — short spellings for your own signatures. Generated `repeated` getters return `Foo_ConstSlice`; generated `map` getters deliberately write `goconst.Map2[…]` out in full ([why](#why-map-getters-spell-out-goconstmap2)). |
+| `Foo_ConstSlice` / `Foo_ConstMap[K]`| Go 1.24 type aliases for `goconst.Slice2[Foo_Const, *Foo]` / `goconst.Map2[K, Foo_Const, *Foo]` — the short spellings, used by the generated getters and available for your own signatures. `map` getters on a reference cycle write the expansion out in full instead ([why](#map-getters-on-reference-cycles)). |
 | `(*Foo).AsConst() Foo_Const`        | Zero-allocation cast (single-pointer struct returned in a register).                        |
 | `(Foo_Const).Get<Field>()`          | One-line forwarder per field; scalar / `bytes` / enum keep their stdlib type, message / `repeated` / `map` return the view-native type. |
 | `(Foo_Const).IsNil() bool`          | The only supported nil-check; `view == nil` is a **compile error**, not a typed-nil footgun. |
@@ -100,11 +100,7 @@ func (c Envelope_Const) GetHistory() Address_ConstSlice {
 	return goconst.NewSlice2(c.p.GetHistory())
 }
 
-func (c Envelope_Const) GetByTag() goconst.Map2[string, Address_Const, *Address] {
-	// Return type is written out rather than the equivalent Address_ConstMap
-	// alias: instantiating a generic alias in a method signature trips
-	// golang/go#79711, which deadlocks the compiler in every package
-	// that imports this one. See the plugin README for details.
+func (c Envelope_Const) GetByTag() Address_ConstMap[string] {
 	return goconst.NewMap2(c.p.GetByTag())
 }
 
@@ -438,18 +434,30 @@ would — no `Foo_Const{...}` / `Slice[...]` wrapper, no intermediate
 render via their own prototext `String()` rather than as opaque
 struct dumps.
 
-### Why map getters spell out `goconst.Map2`
+### Map getters on reference cycles
 
-Generated `repeated` getters return the short per-message alias
-(`Address_ConstSlice`), but generated `map` getters return the fully
-expanded `goconst.Map2[K, Address_Const, *Address]` even though
-`Address_ConstMap[K]` denotes exactly the same type. This asymmetry
-is a deliberate workaround for an open Go compiler bug, not a style
-choice.
+Almost every generated `map` getter returns the short per-message
+alias, exactly like `repeated` getters do:
 
-**The bug.** Instantiating a *generic* type alias inside an exported
-method signature crashes the compiler when the alias's type arguments
-close an instantiation cycle — [golang/go#79711][gobug] (`NeedsFix`,
+```go
+func (c Person_Const) GetAddressBook() Address_ConstMap[int64]
+func (c Person_Const) GetPrevAddresses() Address_ConstSlice
+```
+
+But when a map field lies on a **reference cycle**, its getter instead
+returns the fully written-out equivalent:
+
+```go
+func (c SelfMap_Const) GetChildren() goconst.Map2[int64, SelfMap_Const, *SelfMap]
+```
+
+Both spellings denote the same type. The expansion is a targeted
+workaround for an open Go compiler bug, applied only where it is
+needed.
+
+**The bug.** Instantiating a *generic* type alias inside a **method**
+signature crashes the compiler when the alias's type arguments close
+an instantiation cycle — [golang/go#79711][gobug] (`NeedsFix`,
 milestone Go 1.28; see also [#75757][gobug2]). A message holding a
 `map` of itself is precisely that shape:
 
@@ -462,7 +470,7 @@ message PackNode {
 ```go
 type PackNode_ConstMap[K comparable] = goconst.Map2[K, PackNode_Const, *PackNode]
 
-// If the getter used the alias, this signature closes the cycle:
+// If the getter used the alias, this signature would close the cycle:
 func (c PackNode_Const) GetChildren() PackNode_ConstMap[int64] { … }
 ```
 
@@ -481,74 +489,135 @@ cmd/compile/internal/types2.(*Checker).newAliasInstance(...)
 cmd/compile/internal/importer.(*reader).doTyp(...)
 ```
 
-`types2`'s unified importer re-enters a mutex it already holds while
-substituting the alias's type arguments. Reproduced on Go **1.24.9 /
-1.25.3 / 1.26.4** — generic aliases landed in 1.24, so every release
-that has the feature has the bug.
+Reading `PackNode_Const`'s exported data takes a lock on that type,
+then walks its method set; `GetChildren`'s signature instantiates the
+generic alias, which must resolve `PackNode_Const`'s type parameters,
+which needs the lock again. Go's mutexes are not reentrant, so the
+runtime reports a deadlock. Reproduced on Go **1.24.9 / 1.25.3 /
+1.26.4** — generic aliases landed in 1.24, so every release that has
+the feature has the bug.
 
-**Why the fix is unconditional.** The generator cannot simply special
--case "message references itself": the cycle is often indirect, and
-it can span files and packages that a single generator run never sees
-together.
+**Which fields qualify.** For each `.proto`, the generator builds the
+directed graph of *"message X has a map field whose value type is
+message Y"* over the messages declared in **that file**, and expands
+exactly the edges that lie on a cycle. The graph mirrors one step of
+the compiler's import-time recursion, so an edge is dangerous
+precisely when the walk can return to where it started.
 
-```proto
-message A { map<int64, B> bs = 1; }   // A → B → A: same crash,
-message B { map<int64, A> as = 1; }   // no self-reference anywhere
-```
+Three consequences worth knowing:
 
-So every message-valued map getter is expanded, cyclic or not.
+* Self-reference is **not** the criterion — indirect cycles count too,
+  and neither message mentions itself:
 
-**What is *not* affected** (and therefore left alone):
+  ```proto
+  message A { map<int64, B> bs = 1; }   // A → B → A
+  message B { map<int64, A> as = 1; }
+  ```
+
+* Pointing *at* a cycle member is **not** enough to be on a cycle. A
+  message whose map values are recursive keeps the short alias, as
+  long as nothing leads back to it:
+
+  ```proto
+  message PointsAtCycle {
+    map<int64, SelfMap> nodes = 1;      // stays SelfMap_ConstMap[int64]
+  }
+  ```
+
+  This is safe because instantiating the alias only recurses into
+  `SelfMap_Const`, whose own cyclic getter already carries the
+  expansion — so the walk terminates.
+
+* One file is enough to decide the question. Referring to a message in
+  another `.proto` requires importing it, and protoc rejects cyclic
+  imports, so an edge that leaves a file can never come back:
+
+  ```proto
+  // holder.proto — imports recursive.proto, so recursive.proto
+  // cannot import this one, so nothing leads back here.
+  message Holder {
+    map<int64, recursive.SelfMap> nodes = 1;   // not on a cycle
+  }
+  ```
+
+  Every map-value cycle is therefore confined to a single file.
+
+That last point is why the graph is deliberately scoped per file
+rather than per request: the output for a given `.proto` depends only
+on that `.proto`. Generating a file alone and generating it alongside
+its whole dependency tree provably agree, whatever the invoking build
+system passes in (`buf` `strategy`, per-directory `protoc` runs, …) —
+a property that is structural here rather than incidental.
+
+Both halves are pinned by compile-time guards in
+[`examples/regression`](examples/regression): `aliascycle` for the
+same-file cases, `xpkgguard` for the cross-package one.
+
+**What is never affected:**
 
 | Shape | Generated return type | Affected? |
 | ----- | --------------------- | --------- |
-| `map<K, Msg>` | `goconst.Map2[K, Msg_Const, *Msg]` | was the trigger — now expanded |
+| `map<K, Msg>` on a cycle | `goconst.Map2[K, Msg_Const, *Msg]` | yes — expanded |
+| `map<K, Msg>` off any cycle | `Msg_ConstMap[K]` | no |
 | `repeated Msg` | `Msg_ConstSlice` | no — a non-generic alias never reaches `newAliasInstance` |
 | singular `Msg` | `Msg_Const` | no — not an alias |
 | `map<K, scalar>` / excluded-package values | `goconst.Map[K, V]` | no — not an alias |
 
-**The aliases are still emitted, and still safe for you to use.**
-`Msg_ConstMap[K]` remains in the generated output and is verified to
-work in consumer packages — in variables, struct fields, parameters
-and return types of *hand-written* code. Only the generator avoids
-it, because generated getters are what the failing import path walks:
+**The aliases are always emitted, and always safe for you to use.**
+`Msg_ConstMap[K]` is generated for every message regardless, and is
+verified to work in consumer packages — in variables, struct fields,
+parameters and return types of *hand-written* code, including for
+recursive messages:
 
 ```go
-// All fine in your own code:
+// All fine in your own code, even though SelfMap is recursive:
 func handle(m recursive.SelfMap_ConstMap[int64]) int { return m.Len() }
 type cache struct{ nodes recursive.SelfMap_ConstMap[int64] }
+func get(c recursive.SelfMap_Const) recursive.SelfMap_ConstMap[int64] { … }
 ```
 
-**Cost.** None beyond signature length — an alias and its expansion
-are the same type, so this is source-compatible in both directions.
-Upgrading from a pre-0.6.0 generator changes only the spelling in
-`*.const.pb.go`; no caller needs to change.
+Only *methods* whose receiver participates in the cycle are affected,
+which is why plain functions and your own types are unrestricted.
 
-**Where the explanation lives.** The per-getter note is emitted
-*inside* the function body, not above it. As a doc comment it would
-become the method's godoc — an implementation note about a compiler
-bug served as public API documentation, and the only documented
-getter in an otherwise uniformly undocumented set. The generated
-comment also avoids square brackets: `[Name]` is
-[doc-link syntax][doclinks] in Go doc comments, and Markdown-based
-renderers (IDE hovers) mangle it further. So `godoc` for a map getter
-shows just the signature:
+**Cost.** None beyond signature length on the affected getters — an
+alias and its expansion are the same type, so this is
+source-compatible in both directions and no caller ever needs to
+change.
+
+**Where the explanation lives.** Each expanded getter carries a short
+note explaining itself, emitted *inside* the function body rather than
+above it. As a doc comment it would become the method's godoc — an
+implementation note about a compiler bug served as public API
+documentation. So `godoc` for a map getter shows just the signature:
 
 ```
 func (c SelfMap_Const) GetChildren() goconst.Map2[int64, SelfMap_Const, *SelfMap]
 ```
 
-The `_ConstSlice` / `_ConstMap` aliases do carry a one-line doc
-comment, since they are exported API that the generated getters never
-reference — a reader who notices that deserves to find out what they
-are for.
+Being a body comment also means `go/doc` never sees it, so the note is
+free to name the alias instantiation it stands in for precisely:
+
+```go
+// Return type is written out rather than the equivalent
+// SelfMap_ConstMap[int64] alias: this field is part of a reference cycle,
+// …
+```
+
+The `_ConstSlice` / `_ConstMap` aliases do carry a real one-line doc
+comment, since they are exported API that some getters skip — a
+reader who notices that deserves to find out what they are for. Those
+texts *are* kept free of square brackets, because `[Name]` is
+[doc-link syntax][doclinks] in Go doc comments and Markdown-based
+renderers (IDE hovers) mangle it further.
 
 **Detection caveat.** This is a compiler crash, not a type error:
 `go vet`, `gopls` and `go/types`-based tooling all report success.
 Only a real `go build` / `go test` of an importing package surfaces
-it — which is why the regression guard
-([`examples/regression/aliascycle`](examples/regression/aliascycle))
-is a separate package rather than a test beside the generated code.
+it — which is why the regression guards
+([`examples/regression`](examples/regression)) are separate packages
+rather than tests beside the generated code. The cycle criterion
+itself is unit-tested in
+[`cmd/protoc-gen-go-const/main_test.go`](cmd/protoc-gen-go-const/main_test.go).
 
 [doclinks]: https://go.dev/doc/comment#links
 [gobug]: https://github.com/golang/go/issues/79711
@@ -710,7 +779,7 @@ exercises and how to regenerate them locally.
 Verified against Go 1.24.9, 1.25.3 and 1.26.4. No upper bound is
 known; the one compiler-version-sensitive area is the generic-alias
 instantiation bug described in
-["Why map getters spell out `goconst.Map2`"](#why-map-getters-spell-out-goconstmap2),
+["Map getters on reference cycles"](#map-getters-on-reference-cycles),
 which the generator works around on every supported release.
 
 When bumping `google.golang.org/protobuf` in `go.mod`, bump the

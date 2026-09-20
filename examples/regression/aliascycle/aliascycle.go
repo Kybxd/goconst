@@ -52,3 +52,23 @@ func MutualDepth(c recursive.MutualA_Const) int {
 func NestedSelfWidth(c recursive.NestedSelf_Const) int {
 	return c.GetInner().GetOuters().Len() + c.GetInner().GetInners().Len()
 }
+
+// PointsAtCycleWidth exercises the precision case: these getters keep
+// the short <Msg>_ConstMap[K] alias because the edge is not itself on
+// a cycle, even though the *value* types are cycle members. Touching
+// them from this package is what proves the alias is genuinely safe
+// there — instantiating the alias only re-enters the value type's
+// unpack, and the value type's own cyclic getters use the expansion,
+// so the walk terminates.
+func PointsAtCycleWidth(c recursive.PointsAtCycle_Const) int {
+	return c.GetNodes().Len() + c.GetMutuals().Len()
+}
+
+// PointsAtCycleAliasTypes pins that the aliases are usable as ordinary
+// types in a consumer package, not just as inferred return values.
+func PointsAtCycleAliasTypes(
+	nodes recursive.SelfMap_ConstMap[int64],
+	outers recursive.NestedSelf_ConstMap[string],
+) int {
+	return nodes.Len() + outers.Len()
+}

@@ -13,11 +13,13 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.6.1"
+const version = "0.7.0"
 
-// mapAliasCycleNote explains why a map getter's signature spells out
-// goconst.Map2[K, V_Const, *V] instead of the shorter per-message
-// generic alias V_ConstMap[K] that denotes the same type.
+// mapAliasCycleNote explains why a *particular* map getter's signature
+// spells out goconst.Map2[K, V_Const, *V] instead of the shorter
+// per-message generic alias V_ConstMap[K] that denotes the same type.
+// Emitted only on getters that lie on a map-value cycle; acyclic map
+// getters keep the alias and get no note.
 //
 // Instantiating a *generic* alias in an exported method signature
 // trips golang/go#79711 (see also #75757) whenever the alias's type
@@ -35,20 +37,23 @@ const version = "0.6.1"
 // Reproduced on Go 1.24.9 / 1.25.3 / 1.26.4; upstream milestone is
 // Go 1.28.
 //
-// Repeated fields are unaffected: V_ConstSlice is a non-generic
-// alias, and only generic aliases go through newAliasInstance.
-//
 // Emitted *inside* the getter body, never above it: as a doc comment
 // it would become the method's godoc — an implementation note about a
-// compiler bug presented as public API documentation, and the only
-// documented getter on an otherwise uniformly undocumented set. The
-// text also stays free of square brackets, because "[Name]" in a doc
-// comment is doc-link syntax and Markdown-based renderers (IDE hovers)
-// mangle it further.
-const mapAliasCycleNote = "// Return type is written out rather than the equivalent %s_ConstMap\n" +
-	"// alias: instantiating a generic alias in a method signature trips\n" +
-	"// golang/go#79711, which deadlocks the compiler in every package\n" +
-	"// that imports this one. See the plugin README for details."
+// compiler bug presented as public API documentation.
+//
+// Being a body comment, it is invisible to go/doc entirely, so unlike
+// the alias declarations' own doc comments it is free to name the
+// instantiated type precisely, brackets and all (the "[Name]"
+// doc-link caveat only applies to doc comments).
+//
+// Verbs: %s = value message name, %s = key Go type, together forming
+// the alias instantiation this signature stands in for, e.g.
+// "SelfMap_ConstMap[int64]".
+const mapAliasCycleNote = "// Return type is written out rather than the equivalent\n" +
+	"// %s_ConstMap[%s] alias: this field is part of a reference cycle,\n" +
+	"// and instantiating a generic alias in such a method signature trips\n" +
+	"// golang/go#79711, which deadlocks the compiler in every package that\n" +
+	"// imports this one. See the plugin README for details."
 
 // protoPackage / anypbPackage / goconstPackage are the import paths
 // referenced by the emitted methods on every Foo_Const wrapper:
@@ -127,6 +132,151 @@ func main() {
 }
 
 // ---------------------------------------------------------------------------
+// Map-value reference graph (golang/go#79711 avoidance)
+// ---------------------------------------------------------------------------
+
+// mapValueGraph is the directed graph of "message X has a map field
+// whose value type is message Y", restricted to the messages declared
+// in a single .proto file. One graph is built per [Generator].
+//
+// The graph exists solely to answer mapGetterNeedsExpansion, i.e. to
+// find the map getters whose short <Msg>_ConstMap[K] return type would
+// trip golang/go#79711. An edge X → Y mirrors exactly one step of the
+// compiler's import-time recursion: unpacking X_Const walks its method
+// set, hits GetY() Y_ConstMap[K], instantiates that generic alias, and
+// must therefore resolve Y_Const's type parameters — which unpacks
+// Y_Const. If that walk can lead back to X_Const, the compiler
+// re-enters a mutex it already holds and deadlocks.
+//
+// Only map getters create such an edge. Singular message getters
+// return a bare Y_Const (no instantiation), repeated getters return
+// the *non-generic* Y_ConstSlice alias (resolved eagerly, never
+// through newAliasInstance), and the written-out goconst.Map2[…] form
+// instantiates a generic named type rather than a generic alias.
+//
+// # Why one file is enough
+//
+// Referring to a message from another .proto file requires importing
+// that file, and protoc rejects cyclic imports. So if X (file F) has a
+// map of Y (file G ≠ F), no chain of further map fields can lead from
+// Y back to X — that would need G to import F while F imports G.
+// Every map-value cycle is therefore confined to a single file, and a
+// graph over just that file's messages decides the question exactly.
+//
+// Restricting the graph to one file is not merely an optimisation: it
+// makes the output of the plugin for a given .proto depend only on
+// that .proto. Generating a file alone and generating it alongside its
+// whole dependency tree provably agree, whatever the invoking build
+// system passes in (buf `strategy`, per-directory protoc runs, …).
+//
+// Edges leaving the file are dropped rather than recorded-and-ignored,
+// so the vertex set is closed under traversal by construction. An edge
+// into a cycle member in another file stays on the short alias, which
+// is safe: instantiating that alias recurses into the *other* file's
+// view, whose own cyclic getters already carry the expansion, so the
+// walk terminates. Both halves are pinned by the regression guards in
+// examples/regression.
+type mapValueGraph struct {
+	edges map[protoreflect.FullName]map[protoreflect.FullName]bool
+}
+
+// newMapValueGraph records one edge per message-valued, non-excluded
+// map field declared in x.file, ignoring edges whose value type lives
+// in another file (see [mapValueGraph] for why they cannot matter).
+// Excluded value types contribute no edge either: they are projected
+// through goconst.Map, which instantiates no alias.
+func (x *Generator) newMapValueGraph() *mapValueGraph {
+	local := make(map[protoreflect.FullName]bool)
+	collectMessageNames(x.file.Messages, local)
+
+	g := &mapValueGraph{edges: make(map[protoreflect.FullName]map[protoreflect.FullName]bool)}
+	x.addMapValueEdges(g, x.file.Messages, local)
+	return g
+}
+
+// collectMessageNames fills out with the full names of every
+// non-map-entry message in messages, recursing into nested messages.
+// Synthetic map-entry messages are protobuf plumbing and never get a
+// _Const view of their own.
+func collectMessageNames(messages []*protogen.Message, out map[protoreflect.FullName]bool) {
+	for _, message := range messages {
+		if message.Desc.IsMapEntry() {
+			continue
+		}
+		out[message.Desc.FullName()] = true
+		collectMessageNames(message.Messages, out)
+	}
+}
+
+// addMapValueEdges walks messages (and their nested messages) and adds
+// an edge for every map field whose value is a non-excluded message
+// declared in the same file, i.e. present in local.
+func (x *Generator) addMapValueEdges(
+	g *mapValueGraph,
+	messages []*protogen.Message,
+	local map[protoreflect.FullName]bool,
+) {
+	for _, message := range messages {
+		if message.Desc.IsMapEntry() {
+			continue
+		}
+		for _, field := range message.Fields {
+			if !field.Desc.IsMap() {
+				continue
+			}
+			valField := field.Message.Fields[1]
+			if !x.isMessageElem(valField) || x.shouldExcludeMessage(valField.Message) {
+				continue
+			}
+			value := valField.Message.Desc.FullName()
+			if !local[value] {
+				continue
+			}
+			g.addEdge(message.Desc.FullName(), value)
+		}
+		x.addMapValueEdges(g, message.Messages, local)
+	}
+}
+
+// addEdge records that owner holds a map whose value type is value.
+func (g *mapValueGraph) addEdge(owner, value protoreflect.FullName) {
+	if g.edges[owner] == nil {
+		g.edges[owner] = make(map[protoreflect.FullName]bool)
+	}
+	g.edges[owner][value] = true
+}
+
+// onCycle reports whether the edge owner → value lies on a cycle, i.e.
+// whether value can reach owner by following further map-value edges.
+// A self-edge (owner == value, a message holding a map of itself) is
+// the degenerate case and reports true immediately.
+//
+// Breaking a single edge is enough to make the whole cycle safe
+// (verified empirically), so expanding every edge that lies on a cycle
+// is sufficient — and leaves every acyclic edge on the short alias.
+func (g *mapValueGraph) onCycle(owner, value protoreflect.FullName) bool {
+	if owner == value {
+		return true
+	}
+	seen := map[protoreflect.FullName]bool{value: true}
+	stack := []protoreflect.FullName{value}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for next := range g.edges[node] {
+			if next == owner {
+				return true
+			}
+			if !seen[next] {
+				seen[next] = true
+				stack = append(stack, next)
+			}
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
 // Generator
 // ---------------------------------------------------------------------------
 
@@ -148,14 +298,19 @@ type Generator struct {
 	// A wildcard-free pattern degenerates to an exact-match check, so
 	// the legacy "list of import paths" usage keeps working.
 	excludePackagePatterns []string
+
+	// mapValues is the map-value reference graph over *this file's*
+	// messages, consulted by mapGetterNeedsExpansion to decide, per
+	// map getter, between the short <Msg>_ConstMap[K] alias and its
+	// written-out expansion.
+	mapValues *mapValueGraph
 }
 
-// NewGenerator returns a Generator bound to one input file, with the
-// trimmed user-supplied excludePackages concatenated with
-// builtinExcludePackagePatterns into a single doublestar pattern list
-// (order does not matter — matchExcludePattern short-circuits on the
-// first hit).
-func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []string) *Generator {
+// buildExcludePatterns trims and concatenates the user-supplied
+// --exclude_packages entries with builtinExcludePackagePatterns into a
+// single doublestar pattern list (order does not matter —
+// matchExcludePattern short-circuits on the first hit).
+func buildExcludePatterns(excludePackages []string) []string {
 	patterns := make([]string, 0, len(excludePackages)+len(builtinExcludePackagePatterns))
 	for _, pkg := range excludePackages {
 		pkg = strings.TrimSpace(pkg)
@@ -164,12 +319,35 @@ func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []s
 		}
 		patterns = append(patterns, pkg)
 	}
-	patterns = append(patterns, builtinExcludePackagePatterns...)
-	return &Generator{
+	return append(patterns, builtinExcludePackagePatterns...)
+}
+
+// matchExcludePattern reports whether pkgPath matches any of the given
+// --exclude_packages doublestar globs. A malformed pattern is treated
+// as a non-match (matching the original exact-match implementation's
+// behaviour on a typo'd entry).
+func matchExcludePattern(patterns []string, pkgPath string) bool {
+	for _, pattern := range patterns {
+		if ok, _ := doublestar.Match(pattern, pkgPath); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// NewGenerator returns a Generator bound to one input file, with the
+// exclude patterns assembled by [buildExcludePatterns] and the
+// file-local map-value graph consulted by mapGetterNeedsExpansion.
+func NewGenerator(gen *protogen.Plugin, file *protogen.File, excludePackages []string) *Generator {
+	x := &Generator{
 		gen:                    gen,
 		file:                   file,
-		excludePackagePatterns: patterns,
+		excludePackagePatterns: buildExcludePatterns(excludePackages),
 	}
+	// Depends on excludePackagePatterns being set (excluded value
+	// types contribute no edge), so it must come second.
+	x.mapValues = x.newMapValueGraph()
+	return x
 }
 
 // shouldExcludeFile reports whether the input .proto's owning Go
@@ -192,17 +370,10 @@ func (x *Generator) shouldExcludeMessage(message *protogen.Message) bool {
 	return x.matchExcludePattern(string(message.GoIdent.GoImportPath))
 }
 
-// matchExcludePattern reports whether pkgPath matches any of the
-// --exclude_packages doublestar globs. A malformed pattern is treated
-// as a non-match (matching the previous exact-match implementation's
-// behaviour on a typo'd entry).
+// matchExcludePattern reports whether pkgPath matches any of this
+// Generator's --exclude_packages globs.
 func (x *Generator) matchExcludePattern(pkgPath string) bool {
-	for _, pattern := range x.excludePackagePatterns {
-		if ok, _ := doublestar.Match(pattern, pkgPath); ok {
-			return true
-		}
-	}
-	return false
+	return matchExcludePattern(x.excludePackagePatterns, pkgPath)
 }
 
 // Generate walks every top-level message in the input file and emits
@@ -306,17 +477,22 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// _Const view is uniform.
 	//
 	// Note the asymmetry with the getters emitted below: GetXxx on a
-	// repeated message field returns <Msg>_ConstSlice, but GetXxx on
-	// a map field returns the expanded goconst.Map2[…]. _ConstSlice
-	// is a plain alias and is safe anywhere; _ConstMap[K] is a
-	// *generic* alias and cannot appear in a generated method
-	// signature without risking golang/go#79711 — see
+	// repeated message field always returns <Msg>_ConstSlice, but
+	// GetXxx on a map field returns <Msg>_ConstMap[K] only when the
+	// field is not on a reference cycle, else its written-out
+	// expansion. _ConstSlice is a plain alias and is safe anywhere;
+	// _ConstMap[K] is a *generic* alias and cannot appear in a
+	// generated method signature that closes an instantiation cycle
+	// without tripping golang/go#79711 — see [mapValueGraph],
 	// mapContainerType and mapAliasCycleNote.
 	//
-	// Both get a one-line doc comment: they are exported API, and a
-	// reader who notices that _ConstMap is declared but never used by
-	// the generated getters deserves to find out what it is for. The
-	// text avoids square brackets, which are doc-link syntax.
+	// Both aliases get a one-line doc comment: they are exported API,
+	// and a reader who notices that _ConstMap is declared but skipped
+	// by some getters deserves to find out what it is for. Being real
+	// doc comments, these texts avoid square brackets ("[Name]" is
+	// doc-link syntax) — unlike mapAliasCycleNote, which sits in a
+	// function body, is invisible to go/doc, and therefore names the
+	// instantiated alias in full.
 	g.P("// ", msgName, "_ConstSlice is the read-only view type for repeated ",
 		msgName, " fields.")
 	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
@@ -501,7 +677,16 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
-			g.P(fmt.Sprintf(mapAliasCycleNote, valField.Message.GoIdent.GoName))
+			// The note is only warranted where mapContainerType
+			// actually dropped the alias, i.e. on a cycle. The alias
+			// is named unqualified on purpose: a cyclic map edge can
+			// only ever join messages from the same .proto file (see
+			// [mapValueGraph]), hence the same Go package.
+			if x.mapGetterNeedsExpansion(field) {
+				g.P(fmt.Sprintf(mapAliasCycleNote,
+					valField.Message.GoIdent.GoName,
+					x.fieldGoType(field.Message.Fields[0])))
+			}
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")),
 				"(c.p.Get", field.GoName, "())")
 		} else {
@@ -557,42 +742,57 @@ func (x *Generator) sliceContainerType(field *protogen.Field) string {
 		g.QualifiedGoIdent(goconstPackage.Ident("Slice")), x.fieldElemConstType(field))
 }
 
-// mapContainerType returns the goconst.Map[…] / goconst.Map2[…] type
-// string for a map field. Keys are always scalar / enum / bytes in
-// proto3, so no projection logic is needed on the key side.
+// mapContainerType returns the goconst.Map[…] / <ValueMsg>_ConstMap[K]
+// / goconst.Map2[…] type string for a map field. Keys are always
+// scalar / enum / bytes in proto3, so no projection logic is needed on
+// the key side.
 //
-// Message-valued maps deliberately spell out the *fully expanded*
-// goconst.Map2[K, V_Const, *V] rather than the per-message generic
-// alias <ValueMsg>_ConstMap[K], even though the two denote the same
-// type. Instantiating a *generic* alias inside an exported method
-// signature trips a compiler bug (golang/go#79711, also #75757) when
-// the alias's type arguments form an instantiation cycle — which is
-// exactly the shape of a message holding map<K, ItselfOrACycle>:
-//
-//	type PackNode_ConstMap[K comparable] = goconst.Map2[K, PackNode_Const, *PackNode]
-//	func (c PackNode_Const) GetChildren() PackNode_ConstMap[int64] // ← boom
-//
-// The defining package compiles fine; any *other* package that
-// imports it and touches PackNode_Const dies with "fatal error: all
-// goroutines are asleep - deadlock!" inside types2's unified
-// importer. Writing the expansion sidesteps it with zero semantic
-// change. See mapAliasCycleNote and the README ("Why map getters
-// spell out goconst.Map2") for the full story.
+// Message-valued maps normally use the short per-message generic alias
+// <ValueMsg>_ConstMap[K]. When the field lies on a map-value cycle,
+// however, the alias is replaced by its fully written-out expansion
+// goconst.Map2[K, V_Const, *V] — the same type, spelled differently —
+// because instantiating a *generic* alias in an exported method
+// signature trips golang/go#79711 once the type arguments close an
+// instantiation cycle. See [mapValueGraph] for the criterion and
+// [mapGetterNeedsExpansion] for the per-field decision.
 func (x *Generator) mapContainerType(field *protogen.Field) string {
 	g := x.g()
 	keyField := field.Message.Fields[0]
 	valField := field.Message.Fields[1]
 	keyType := x.fieldGoType(keyField)
 	if x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message) {
-		return fmt.Sprintf("%s[%s, %s, *%s]",
-			g.QualifiedGoIdent(goconstPackage.Ident("Map2")),
-			keyType,
-			x.messageConstGoType(valField.Message),
-			g.QualifiedGoIdent(valField.Message.GoIdent))
+		if x.mapGetterNeedsExpansion(field) {
+			return fmt.Sprintf("%s[%s, %s, *%s]",
+				g.QualifiedGoIdent(goconstPackage.Ident("Map2")),
+				keyType,
+				x.messageConstGoType(valField.Message),
+				g.QualifiedGoIdent(valField.Message.GoIdent))
+		}
+		aliasIdent := g.QualifiedGoIdent(protogen.GoIdent{
+			GoName:       valField.Message.GoIdent.GoName + "_ConstMap",
+			GoImportPath: valField.Message.GoIdent.GoImportPath,
+		})
+		return fmt.Sprintf("%s[%s]", aliasIdent, keyType)
 	}
 	valType := x.fieldElemConstType(valField)
 	return fmt.Sprintf("%s[%s, %s]",
 		g.QualifiedGoIdent(goconstPackage.Ident("Map")), keyType, valType)
+}
+
+// mapGetterNeedsExpansion reports whether this map field's getter must
+// return the written-out goconst.Map2[…] instead of the short
+// <ValueMsg>_ConstMap[K] alias, i.e. whether the edge
+// "owner → map value type" lies on a cycle in [mapValueGraph].
+//
+// Caller must have established that the field is a map with a
+// non-excluded message value; for anything else the question is moot
+// (no alias is instantiated).
+func (x *Generator) mapGetterNeedsExpansion(field *protogen.Field) bool {
+	valField := field.Message.Fields[1]
+	return x.mapValues.onCycle(
+		field.Parent.Desc.FullName(),
+		valField.Message.Desc.FullName(),
+	)
 }
 
 // fieldElemConstType returns the Go type string for one element of a
