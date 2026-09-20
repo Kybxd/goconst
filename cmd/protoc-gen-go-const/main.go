@@ -13,10 +13,9 @@ import (
 	"google.golang.org/protobuf/types/pluginpb"
 )
 
-const version = "0.6.0"
+const version = "0.6.1"
 
-// mapAliasCycleNote is emitted above every map getter whose value is a
-// non-excluded message, explaining why the signature spells out
+// mapAliasCycleNote explains why a map getter's signature spells out
 // goconst.Map2[K, V_Const, *V] instead of the shorter per-message
 // generic alias V_ConstMap[K] that denotes the same type.
 //
@@ -38,9 +37,18 @@ const version = "0.6.0"
 //
 // Repeated fields are unaffected: V_ConstSlice is a non-generic
 // alias, and only generic aliases go through newAliasInstance.
-const mapAliasCycleNote = "// NOTE: written out rather than the equivalent %s_ConstMap[%s] alias —\n" +
-	"// instantiating a generic alias in a method signature trips\n" +
-	"// golang/go#79711 (importer deadlock) on recursive messages."
+//
+// Emitted *inside* the getter body, never above it: as a doc comment
+// it would become the method's godoc — an implementation note about a
+// compiler bug presented as public API documentation, and the only
+// documented getter on an otherwise uniformly undocumented set. The
+// text also stays free of square brackets, because "[Name]" in a doc
+// comment is doc-link syntax and Markdown-based renderers (IDE hovers)
+// mangle it further.
+const mapAliasCycleNote = "// Return type is written out rather than the equivalent %s_ConstMap\n" +
+	"// alias: instantiating a generic alias in a method signature trips\n" +
+	"// golang/go#79711, which deadlocks the compiler in every package\n" +
+	"// that imports this one. See the plugin README for details."
 
 // protoPackage / anypbPackage / goconstPackage are the import paths
 // referenced by the emitted methods on every Foo_Const wrapper:
@@ -304,8 +312,18 @@ func (x *Generator) genMessageConstAPI(message *protogen.Message) {
 	// *generic* alias and cannot appear in a generated method
 	// signature without risking golang/go#79711 — see
 	// mapContainerType and mapAliasCycleNote.
+	//
+	// Both get a one-line doc comment: they are exported API, and a
+	// reader who notices that _ConstMap is declared but never used by
+	// the generated getters deserves to find out what it is for. The
+	// text avoids square brackets, which are doc-link syntax.
+	g.P("// ", msgName, "_ConstSlice is the read-only view type for repeated ",
+		msgName, " fields.")
 	g.P("type ", msgName, "_ConstSlice = ", g.QualifiedGoIdent(goconstPackage.Ident("Slice2")),
 		"[", msgName, "_Const, *", msgName, "]")
+	g.P()
+	g.P("// ", msgName, "_ConstMap is the read-only view type for map fields with ",
+		msgName, " values, keyed by K.")
 	g.P("type ", msgName, "_ConstMap[K comparable] = ",
 		g.QualifiedGoIdent(goconstPackage.Ident("Map2")),
 		"[K, ", msgName, "_Const, *", msgName, "]")
@@ -481,13 +499,9 @@ func (x *Generator) genConstGetter(message *protogen.Message, field *protogen.Fi
 		wrapAsConst := x.isMessageElem(valField) && !x.shouldExcludeMessage(valField.Message)
 		retType := x.mapContainerType(field)
 
-		if wrapAsConst {
-			g.P(fmt.Sprintf(mapAliasCycleNote,
-				valField.Message.GoIdent.GoName,
-				x.fieldGoType(field.Message.Fields[0])))
-		}
 		g.P("func ", recv, " Get", field.GoName, "() ", retType, " {")
 		if wrapAsConst {
+			g.P(fmt.Sprintf(mapAliasCycleNote, valField.Message.GoIdent.GoName))
 			g.P("return ", g.QualifiedGoIdent(goconstPackage.Ident("NewMap2")),
 				"(c.p.Get", field.GoName, "())")
 		} else {

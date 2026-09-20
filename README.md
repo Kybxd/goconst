@@ -81,7 +81,10 @@ type Envelope_Const struct {
 	p *Envelope
 }
 
-type Envelope_ConstSlice             = goconst.Slice2[Envelope_Const, *Envelope]
+// Envelope_ConstSlice is the read-only view type for repeated Envelope fields.
+type Envelope_ConstSlice = goconst.Slice2[Envelope_Const, *Envelope]
+
+// Envelope_ConstMap is the read-only view type for map fields with Envelope values, keyed by K.
 type Envelope_ConstMap[K comparable] = goconst.Map2[K, Envelope_Const, *Envelope]
 
 // AsConst returns x wrapped as its read-only Envelope_Const view.
@@ -97,10 +100,11 @@ func (c Envelope_Const) GetHistory() Address_ConstSlice {
 	return goconst.NewSlice2(c.p.GetHistory())
 }
 
-// NOTE: written out rather than the equivalent Address_ConstMap[string] alias —
-// instantiating a generic alias in a method signature trips
-// golang/go#79711 (importer deadlock) on recursive messages.
 func (c Envelope_Const) GetByTag() goconst.Map2[string, Address_Const, *Address] {
+	// Return type is written out rather than the equivalent Address_ConstMap
+	// alias: instantiating a generic alias in a method signature trips
+	// golang/go#79711, which deadlocks the compiler in every package
+	// that imports this one. See the plugin README for details.
 	return goconst.NewMap2(c.p.GetByTag())
 }
 
@@ -520,6 +524,25 @@ are the same type, so this is source-compatible in both directions.
 Upgrading from a pre-0.6.0 generator changes only the spelling in
 `*.const.pb.go`; no caller needs to change.
 
+**Where the explanation lives.** The per-getter note is emitted
+*inside* the function body, not above it. As a doc comment it would
+become the method's godoc — an implementation note about a compiler
+bug served as public API documentation, and the only documented
+getter in an otherwise uniformly undocumented set. The generated
+comment also avoids square brackets: `[Name]` is
+[doc-link syntax][doclinks] in Go doc comments, and Markdown-based
+renderers (IDE hovers) mangle it further. So `godoc` for a map getter
+shows just the signature:
+
+```
+func (c SelfMap_Const) GetChildren() goconst.Map2[int64, SelfMap_Const, *SelfMap]
+```
+
+The `_ConstSlice` / `_ConstMap` aliases do carry a one-line doc
+comment, since they are exported API that the generated getters never
+reference — a reader who notices that deserves to find out what they
+are for.
+
 **Detection caveat.** This is a compiler crash, not a type error:
 `go vet`, `gopls` and `go/types`-based tooling all report success.
 Only a real `go build` / `go test` of an importing package surfaces
@@ -527,6 +550,7 @@ it — which is why the regression guard
 ([`examples/regression/aliascycle`](examples/regression/aliascycle))
 is a separate package rather than a test beside the generated code.
 
+[doclinks]: https://go.dev/doc/comment#links
 [gobug]: https://github.com/golang/go/issues/79711
 [gobug2]: https://github.com/golang/go/issues/75757
 
